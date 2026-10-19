@@ -1,0 +1,1 @@
+<section class="page-intro"><span class="eyebrow"><?= e(settings('branding')['slogan']) ?></span><h1><?= e($page['title']) ?></h1></section><article class="section prose"><?= paragraphs($page['body']) ?></article>

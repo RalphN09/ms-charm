@@ -1,0 +1,12 @@
+Options -Indexes -MultiViews
+DirectoryIndex index.php
+RewriteEngine On
+# Private code/data are never served over HTTP. Internal PHP includes still work.
+RewriteRule ^(?:app|bin|database|storage|tests)(?:/|$) - [F,L,NC]
+RewriteRule ^(?:README\.md|ASSET-CREDITS\.md|DEPLOY-IN-PUBLIC-HTML\.md)$ - [F,L,NC]
+<FilesMatch "^\.">
+  Require all denied
+</FilesMatch>
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [QSA,L]

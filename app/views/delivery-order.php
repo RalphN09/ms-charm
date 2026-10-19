@@ -1,0 +1,2 @@
+<?php $savedDelivery=json_decode($deliveryOrder['delivery_snapshot']??'{}',true)?:[]; ?>
+<?php if(!empty($savedDelivery['name'])): ?><p><strong>Delivery area:</strong> <?= e($savedDelivery['name']) ?><br><?= e(implode(' / ',array_unique(array_filter([$savedDelivery['governorate']??'',$savedDelivery['district']??'',$savedDelivery['locality']??''])))) ?><?php if(!empty($savedDelivery['estimate'])): ?><br>Estimated delivery: <?= e($savedDelivery['estimate']) ?><?php endif ?></p><?php endif ?>

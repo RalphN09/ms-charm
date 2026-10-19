@@ -1,0 +1,1 @@
+<section class="section empty-state"><span class="eyebrow">M’S CHARM</span><h1><?= e($title) ?></h1><p><?= e($message) ?></p><a class="button" href="/">Back to the store</a><?php if(http_response_code()===403): ?><p><a href="/login" class="text-link">Sign in with an authorized account</a></p><?php endif ?></section>
