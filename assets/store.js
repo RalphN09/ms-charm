@@ -114,10 +114,11 @@ document.addEventListener('click', event => {
   if (add) {
     const quantity = add.dataset.quantity ? Number(document.querySelector(add.dataset.quantity).value) : 1;
     if (!Number.isInteger(quantity) || quantity < 1) { notify('Please choose a valid quantity.'); return; }
-    changeBag(add, {product_id: add.dataset.add, quantity, mode: 'add'});
+    if(add.hasAttribute('data-needs-variant')&&!add.dataset.variantId){notify('Choose all required product options.');return;}
+    changeBag(add, {product_id: add.dataset.add, variant_id:add.dataset.variantId||'',quantity, mode: 'add'});
   }
   const update = event.target.closest('[data-cart-update]');
-  if (update) changeBag(update, {product_id: update.dataset.cartUpdate, quantity: Number(update.dataset.value), mode: 'set'}, true);
+  if (update) changeBag(update, {line_key: update.dataset.cartUpdate, quantity: Number(update.dataset.value), mode: 'set'}, true);
   const thumb = event.target.closest('[data-image]');
   if (thumb) document.getElementById('product-main-image').src = thumb.dataset.image;
   const menu = event.target.closest('[data-menu]');
@@ -143,11 +144,11 @@ if (document.modelContext?.registerTool && !document.body.classList.contains('ad
     if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length) throw new Error('Provide an empty object.');
     const response=await fetch('/api/cart'); if(!response.ok)throw new Error('Unable to read your bag.');
     const bag=await response.json();
-    return {items:bag.items.map(line=>({productId:line.product.id,name:line.product.name,quantity:line.quantity,unitPriceCents:Number(line.product.sale_price??line.product.price),available:line.available})),subtotalCents:bag.subtotal,discountCents:bag.discount,discountedSubtotalCents:bag.discounted_subtotal,deliveryCents:bag.delivery,taxCents:bag.tax,totalCents:bag.total};
+    return {items:bag.items.map(line=>({productId:line.product.id,name:line.product.name,variantId:line.variant_id,options:line.options,quantity:line.quantity,unitPriceCents:Number(line.product.sale_price??line.product.price),available:line.available})),subtotalCents:bag.subtotal,discountCents:bag.discount,discountedSubtotalCents:bag.discounted_subtotal,deliveryCents:bag.delivery,taxCents:bag.tax,totalCents:bag.total};
   }});
-  if(document.querySelector('[data-add]')) register({name:'add_product_to_bag',title:'Add product to bag',description:'Add an available product to the shopping bag and update the visible bag count. Does not checkout or create an order.',inputSchema:{type:'object',properties:{productId:{type:'string',pattern:'^[a-f0-9]{32}$'},quantity:{type:'integer',minimum:1,maximum:99}},required:['productId','quantity'],additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:false},async execute(input){
-    if(!input || typeof input!=='object' || !/^[a-f0-9]{32}$/.test(input.productId) || !Number.isInteger(input.quantity) || input.quantity<1 || input.quantity>99 || Object.keys(input).some(key=>!['productId','quantity'].includes(key)))throw new Error('Provide a valid product ID and a quantity from 1 to 99.');
-    const result=await updateBagState({product_id:input.productId,quantity:input.quantity,mode:'add'});notify('A little charm, added to your bag.');return {count:result.count,total:result.total};
+  if(document.querySelector('[data-add]')) register({name:'add_product_to_bag',title:'Add product to bag',description:'Add an available product to the shopping bag and update the visible bag count. Does not checkout or create an order.',inputSchema:{type:'object',properties:{productId:{type:'string',pattern:'^[a-f0-9]{32}$'},quantity:{type:'integer',minimum:1,maximum:99},variantId:{type:'string',pattern:'^[a-f0-9]{32}$'}},required:['productId','quantity'],additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:false},async execute(input){
+    if(!input || typeof input!=='object' || !/^[a-f0-9]{32}$/.test(input.productId) || !Number.isInteger(input.quantity) || input.quantity<1 || input.quantity>99 || Object.keys(input).some(key=>!['productId','quantity','variantId'].includes(key)))throw new Error('Provide a valid product ID and a quantity from 1 to 99.');
+    const result=await updateBagState({product_id:input.productId,quantity:input.quantity,variant_id:input.variantId||'',mode:'add'});notify('A little charm, added to your bag.');return {count:result.count,total:result.total};
   }});
   window.addEventListener('pagehide',()=>lifecycle.abort(),{once:true});
 }

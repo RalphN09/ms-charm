@@ -14,13 +14,14 @@ function place_order(array $data): array {
     db()->beginTransaction();
     try {
         // Serialize all checkout attempts for an account before reading products/offers.
-        promo_lock();delivery_lock();$s=delivery_store(true);if(!$s['open'])throw new DomainException('The store is currently closed for orders.');
+        variants_lock();promo_lock();delivery_lock();$s=delivery_store(true);if(!$s['open'])throw new DomainException('The store is currently closed for orders.');
         offers_lock();$customer=current_user();
         if($customer && env('DB_DRIVER')==='mysql')query('SELECT id FROM users WHERE id=? FOR UPDATE',[$customer['id']]);
         // A concurrent submission may have completed while the account lock was pending.
         $existing=row('SELECT * FROM orders WHERE idempotency_key=?'.(env('DB_DRIVER')==='mysql'?' FOR UPDATE':''),[$key]);
         if($existing){db()->commit();return $existing;}
         $cart=cart_totals(true);if(!$cart['items']) throw new DomainException('Your bag is empty.');
+        if($cart['variant_error']!=='')throw new DomainException($cart['variant_error']);
         if($cart['promo_error']!=='')throw new DomainException($cart['promo_error'].' Remove or replace the code to continue.');
         if($cart['delivery_details']['status']!=='ready')throw new DomainException($cart['delivery_details']['message']);
         if((governorate_ready()||delivery_config(true)['enabled']) && ($_SESSION['checkout_quotes'][$key]['delivery_signature']??'')!==$cart['delivery_details']['signature'])throw new DomainException('Your delivery area or rate changed. Review the updated delivery fee and total before placing your order.');
@@ -28,11 +29,14 @@ function place_order(array $data): array {
         $quotedDiscount=(int)($_SESSION['checkout_quotes'][$key]['discount']??0);
         if($quotedDiscount>$cart['discount'] || (isset($_SESSION['checkout_quotes'][$key]['total']) && $cart['total']>$_SESSION['checkout_quotes'][$key]['total']))throw new DomainException('Prices or offers changed. Review the updated checkout total and submit again.');
         if($cart['subtotal']<cents($s['minimum_order'])) throw new DomainException('The minimum order is '.money(cents($s['minimum_order'])).'.');
+        $variantProducts=[];
         foreach($cart['items'] as $line) {
             $p=$line['product'];
-            // Atomic stock claim prevents overselling even when two customers order together.
-            if(query('UPDATE products SET stock=stock-?,updated_at=? WHERE id=? AND stock>=? AND active=1',[$line['quantity'],now(),$p['id'],$line['quantity']])->rowCount()!==1) throw new DomainException($p['name'].' no longer has enough stock. Please update your bag.');
+            if($line['variant_id']){
+                if(query('UPDATE product_variants SET stock=stock-?,updated_at=? WHERE id=? AND product_id=? AND stock>=? AND active=1 AND deleted=0',[$line['quantity'],now(),$line['variant_id'],$p['id'],$line['quantity']])->rowCount()!==1)throw new DomainException('This variant no longer has enough stock. Update your bag.');$variantProducts[$p['id']]=true;
+            }elseif(query('UPDATE products SET stock=stock-?,updated_at=? WHERE id=? AND stock>=? AND active=1',[$line['quantity'],now(),$p['id'],$line['quantity']])->rowCount()!==1)throw new DomainException($p['name'].' no longer has enough stock. Please update your bag.');
         }
+        foreach(array_keys($variantProducts) as $pid)variant_refresh_stock($pid);
         $id=uuid();$reference='MC-'.gmdate('ymd').'-'.strtoupper(substr($id,0,8));
         $order=['id'=>$id,'reference'=>$reference,'user_id'=>current_user()['id']??null,...$details,'notes'=>text_input($data,'notes',2000),'internal_notes'=>'','subtotal'=>$cart['subtotal'],'delivery_fee'=>$cart['delivery'],'tax'=>$cart['tax'],'total'=>$cart['total'],'currency'=>$s['currency'],'status'=>'pending','payment_method'=>'cash_on_delivery','payment_status'=>'unpaid','idempotency_key'=>$key,'stock_released'=>0,'created_at'=>now(),'updated_at'=>now()];
         insert_record('orders',$order);
@@ -55,7 +59,7 @@ function place_order(array $data): array {
         if(offers_ready()){
             offers_redeem($cart['applied_offers'],$id);$pricing=['offer_discount'=>array_sum(array_column($cart['applied_offers'],'amount')),'offer_snapshot'=>json_encode($cart['applied_offers'])];update_record('orders',$id,$pricing);$order=[...$order,...$pricing];
         }
-        foreach($cart['items'] as $line) { $p=$line['product'];insert_record('order_items',['id'=>uuid(),'order_id'=>$id,'product_id'=>$p['id'],'product_name'=>$p['name'],'unit_price'=>base_product_price($p),'quantity'=>$line['quantity'],'image'=>product_images($p)[0]??'']); }
+        foreach($cart['items'] as $line) { $p=$line['product'];insert_record('order_items',['id'=>uuid(),'order_id'=>$id,'product_id'=>$p['id'],'product_name'=>$p['name'],'unit_price'=>base_product_price($p),'quantity'=>$line['quantity'],'image'=>product_images($p)[0]??'',...(variants_ready()?['variant_id'=>$line['variant_id'],'variant_snapshot'=>$line['variant_snapshot']?json_encode($line['variant_snapshot'],JSON_UNESCAPED_UNICODE):null,'line_discount'=>$line['line_discount'],'final_line_total'=>$line['final_line_total']]:[])]); }
         db()->commit();$_SESSION['cart']=[];$_SESSION['order_access'][$id]=true;
         return $order;
     } catch(Throwable $e) { if(db()->inTransaction())db()->rollBack();throw $e; }
@@ -65,13 +69,13 @@ function change_order(array $data): void {
     if(!in_array($status,ORDER_STATUSES,true)) throw new DomainException('Invalid order status.');
     db()->beginTransaction();
     try {
-        promo_lock();$o=row('SELECT * FROM orders WHERE id=?'.(env('DB_DRIVER')==='mysql'?' FOR UPDATE':''),[$id]);
+        variants_lock();promo_lock();$o=row('SELECT * FROM orders WHERE id=?'.(env('DB_DRIVER')==='mysql'?' FOR UPDATE':''),[$id]);
         if(!$o) throw new DomainException('Order not found.');
         if($o['status']==='cancelled' && $status!=='cancelled') throw new DomainException('Cancelled orders cannot be reopened. Create a new order.');
         if($o['status']==='completed' && $status!=='completed') throw new DomainException('Completed orders cannot be changed.');
         if($status==='cancelled' && !$o['stock_released']) {
             // Conditional state transition is also safe under SQLite's serialized writes.
-            if(query('UPDATE orders SET stock_released=1 WHERE id=? AND stock_released=0',[$id])->rowCount()===1) foreach(rows('SELECT product_id,quantity FROM order_items WHERE order_id=?',[$id]) as $item) if($item['product_id'])query('UPDATE products SET stock=stock+?,updated_at=? WHERE id=?',[$item['quantity'],now(),$item['product_id']]);
+            if(query('UPDATE orders SET stock_released=1 WHERE id=? AND stock_released=0',[$id])->rowCount()===1){$restored=[];foreach(rows('SELECT * FROM order_items WHERE order_id=?',[$id]) as $item){if(!empty($item['variant_id'])){query('UPDATE product_variants SET stock=stock+?,updated_at=? WHERE id=?',[$item['quantity'],now(),$item['variant_id']]);if($item['product_id'])$restored[$item['product_id']]=true;}elseif($item['product_id'])query('UPDATE products SET stock=stock+?,updated_at=? WHERE id=?',[$item['quantity'],now(),$item['product_id']]);}foreach(array_keys($restored) as $pid)variant_refresh_stock($pid);}
         }
         $payment=text_input($data,'payment_status',30,true);
         if(!in_array($payment,['unpaid','paid','refunded'],true))throw new DomainException('Invalid payment status.');

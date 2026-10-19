@@ -25,7 +25,7 @@ try {
         verify_csrf();
         if($path==='/api/welcome/claim')json_response(promo_claim($_POST));
         if($path==='/api/promo'){
-            $cart=promo_apply($_POST);ob_start();require ROOT.'/app/views/totals.php';$summary=ob_get_clean();json_response(['ok'=>true,'summary'=>$summary,'ready'=>$cart['delivery_details']['status']==='ready'&&$cart['promo_error']==='','message'=>empty($_SESSION['promo_code'])?'Promo code removed.':'Promo code applied. Review your updated total.']);
+            $cart=promo_apply($_POST);ob_start();require ROOT.'/app/views/totals.php';$summary=ob_get_clean();json_response(['ok'=>true,'summary'=>$summary,'ready'=>$cart['delivery_details']['status']==='ready'&&$cart['promo_error']===''&&$cart['can_checkout'],'message'=>empty($_SESSION['promo_code'])?'Promo code removed.':'Promo code applied. Review your updated total.']);
         }
         if($path==='/api/cart') {
             try{$data=json_decode(file_get_contents('php://input'),true,16,JSON_THROW_ON_ERROR);}catch(JsonException){throw new DomainException('Invalid bag update.');}if(!is_array($data))throw new DomainException('Invalid bag update.');
@@ -33,7 +33,7 @@ try {
         }
         if($path==='/api/delivery'){
             $cart=delivery_update_quote($_POST);ob_start();require ROOT.'/app/views/totals.php';$summary=ob_get_clean();
-            json_response(['ok'=>true,'ready'=>$cart['delivery_details']['status']==='ready'&&$cart['promo_error']==='','summary'=>$summary,'message'=>$cart['promo_error']?:$cart['delivery_details']['message'],'city'=>$cart['delivery_details']['locality'],'city_locked'=>$cart['delivery_details']['mode']==='area'&&$cart['delivery_details']['locality']!=='','city_required'=>$cart['delivery_details']['mode']!=='area'||$cart['delivery_details']['locality']==='','currency'=>settings('store')['currency']]);
+            json_response(['ok'=>true,'ready'=>$cart['delivery_details']['status']==='ready'&&$cart['promo_error']===''&&$cart['can_checkout'],'summary'=>$summary,'message'=>$cart['promo_error']?:$cart['delivery_details']['message'],'city'=>$cart['delivery_details']['locality'],'city_locked'=>$cart['delivery_details']['mode']==='area'&&$cart['delivery_details']['locality']!=='','city_required'=>$cart['delivery_details']['mode']!=='area'||$cart['delivery_details']['locality']==='','currency'=>settings('store')['currency']]);
         }
         switch($path) {
             case '/welcome/claim': try{$_SESSION['welcome_claim_result']=promo_claim($_POST);}catch(DomainException $e){flash($e->getMessage(),'error');}redirect('/welcome');
@@ -54,13 +54,13 @@ try {
             if($section==='offers'&&isset($_POST['promo_admin'])){if(!promo_ready()){require_once ROOT.'/database/promo-migration.php';promo_migrate_up();}promo_admin_action($_POST);flash('Promo code saved.');redirect('/admin/offers?tab=codes');}
             if($section==='delivery'){if(!governorate_ready()){require_once ROOT.'/database/governorate-migration.php';governorate_migrate_up();}governorate_admin_action($_POST);flash('Delivery settings saved.');redirect('/admin/delivery');}
             if($section==='offers'){if(!offers_ready()){require_once ROOT.'/database/offers-migration.php';offers_migrate_up();}offer_admin_action($_POST);flash('Offer saved.');redirect('/admin/offers');}
+            if($section==='products'&&!variants_ready()){require_once ROOT.'/database/variants-migration.php';variants_migrate_up();}
             if($action==='settings')save_settings($section,$_POST);
             elseif($action==='save')cms_write($section,$_POST);
             elseif($action==='delete')cms_delete($section,text_input($_POST,'id',32,true));
             elseif($action==='duplicate') {
                 if($section!=='products')throw new DomainException('Only products can be duplicated.');
-                $p=row('SELECT * FROM products WHERE id=?',[text_input($_POST,'id',32,true)]);if(!$p)throw new DomainException('Product not found.');
-                $p['id']=uuid();$p['name'].=' (copy)';$p['slug'].='-'.substr($p['id'],0,6);$p['active']=0;$p['created_at']=$p['updated_at']=now();insert_record('products',$p);audit('duplicate','products',$p['id']);
+                variant_duplicate_product(text_input($_POST,'id',32,true));
             }elseif($action==='order')change_order($_POST);
             elseif($action==='message') { $status=text_input($_POST,'status',20,true);if(!in_array($status,['new','read','resolved'],true))throw new DomainException('Invalid message status.');update_record('messages',text_input($_POST,'id',32,true),['status'=>$status]); }
             else throw new DomainException('Unknown action.');
@@ -78,6 +78,7 @@ try {
         $allowed=['delivery','offers','dashboard','products','categories','orders','customers','reviews','homepage','pages','navigation','promotions','welcome','social','contact','branding','seo','footer','store','users','system','messages'];
         if(!in_array($section,$allowed,true))throw new DomainException('Unknown admin section.');
         if(in_array($section,['users','system'],true))require_admin(true);
+        if($section==='products'&&!variants_ready()){require_once ROOT.'/database/variants-migration.php';variants_migrate_up();}
         if($section==='delivery' && !delivery_ready()){require_once ROOT.'/database/delivery-migration.php';delivery_migrate_up();}
         if($section==='delivery' && !governorate_ready()){require_once ROOT.'/database/governorate-migration.php';governorate_migrate_up();}
         if(in_array($section,['offers','welcome'],true)&&!promo_ready()){require_once ROOT.'/database/promo-migration.php';promo_migrate_up();}

@@ -74,7 +74,7 @@ function offers_cart(array $items,array $active): array {
         }
         if($eligible<(int)$o['minimum_amount'] || !$candidates)continue;
         $remaining=$o['maximum_discount']?(int)$o['maximum_discount']:array_sum($candidates);$amount=0;$lines=[];
-        foreach($candidates as $i=>$saving){$take=min($remaining,$saving);if(!$take)break;$assigned[$i]=true;$items[$i]['offer_saving']=$take;$items[$i]['offer_title']=$o['title'];$remaining-=$take;$amount+=$take;$lines[]=['product_id'=>$items[$i]['product']['id'],'quantity'=>$items[$i]['quantity'],'original_line'=>$items[$i]['line_total'],'discount'=>$take];}
+        foreach($candidates as $i=>$saving){$take=min($remaining,$saving);if(!$take)break;$assigned[$i]=true;$items[$i]['offer_saving']=$take;$items[$i]['offer_title']=$o['title'];$remaining-=$take;$amount+=$take;$lines[]=['product_id'=>$items[$i]['product']['id'],'variant_id'=>$items[$i]['variant_id']??null,'line_key'=>$items[$i]['line_key']??$items[$i]['product']['id'],'quantity'=>$items[$i]['quantity'],'original_line'=>$items[$i]['line_total'],'discount'=>$take];}
         if($amount)$applied[]=['id'=>$o['id'],'title'=>$o['title'],'type'=>$o['discount_type'],'value'=>(int)$o['discount_value'],'amount'=>$amount,'lines'=>$lines];
     }return ['items'=>$items,'applied'=>$applied,'discount'=>array_sum(array_column($applied,'amount'))];
 }

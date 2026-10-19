@@ -61,7 +61,7 @@ function promo_quote(array $items,int $subtotal,array $delivery,array $store): a
         $productIds=array_column(rows('SELECT product_id FROM promo_products WHERE promo_id=?'.promo_for_update(),[$p['id']]),'product_id');$categoryIds=[];
         foreach(rows('SELECT category_id FROM promo_categories WHERE promo_id=?'.promo_for_update(),[$p['id']]) as $a)$categoryIds=[...$categoryIds,...category_branch_ids($a['category_id'],categories())];
         $eligible=0;$lines=[];foreach($items as $line){$product=$line['product'];$match=match($p['scope']){'products'=>in_array($product['id'],$productIds,true),'categories'=>in_array($product['category_id'],$categoryIds,true),default=>true};
-            if($match&&($p['discount_type']==='free_shipping'||$product['sale_price']===null)){$eligible+=$line['line_total'];$lines[]=['product_id'=>$product['id'],'quantity'=>$line['quantity'],'subtotal'=>$line['line_total']];}}
+            if($match&&($p['discount_type']==='free_shipping'||$product['sale_price']===null)){$eligible+=$line['line_total'];$lines[]=['product_id'=>$product['id'],'variant_id'=>$line['variant_id']??null,'line_key'=>$line['line_key']??$product['id'],'quantity'=>$line['quantity'],'subtotal'=>$line['line_total']];}}
         if(!$lines||$eligible<(int)$p['minimum_amount'])throw new DomainException('This code needs eligible merchandise of at least '.money((int)$p['minimum_amount']).'. Merchandise codes exclude sale items.');
         if($p['discount_type']==='free_shipping'){
             if($delivery['status']!=='ready')throw new DomainException('Choose a supported delivery area before applying free shipping.');

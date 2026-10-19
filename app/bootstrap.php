@@ -20,6 +20,7 @@ require_once ROOT.'/app/helpers.php';
 require_once ROOT.'/app/services/auth.php';
 require_once ROOT.'/app/services/welcome.php';
 require_once ROOT.'/app/services/promo.php';
+require_once ROOT.'/app/services/variants.php';
 require_once ROOT.'/app/services/category-hierarchy.php';
 require_once ROOT.'/app/services/catalog.php';
 require_once ROOT.'/app/services/offers.php';

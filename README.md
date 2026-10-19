@@ -497,3 +497,61 @@ Passed **54 governorate service checks on SQLite and 54 on MySQL/MariaDB**, **54
 Browser checks verified an actual USD 3 to USD 6 governorate fee change in disposable data, typed city remaining unchanged, saved fee precision, eight admin cards, and checkout/admin layouts at 320/390/768/1280px without horizontal overflow. No console errors were observed in the tested checkout flow. Screenshots use test addresses/rates only.
 
 Run `php tests/governorates.php` for a disposable SQLite database. Run `php tests/governorates-migration.php flat` and `unmapped` for the import edge cases. For MySQL service/import tests set `TEST_DB_DRIVER=mysql`, `APP_ENV=test` and connection variables for a separate empty disposable database per run. HTTP tests require an APP_ENV=test server and CLI using the same disposable database: initialize with `tests/integration.php`, then run `tests/promo-http.php`, `tests/offers-http.php`, and `tests/governorates-http.php`. Concurrency uses `tests/governorates-concurrency.php setup <new-directory> same|rate|disable|publish`, worker/editor processes and the file barriers implemented in that script; `publish` begins its worker snapshot before the editor publishes readiness. Never target production with these data-creating tests.
+
+## Product variants release — 19 October 2026
+
+### Configure sizes, colors and actual combinations
+
+Open **Admin → Products → Add product or Edit → Product Variants**. Choose No variants, Sizes only, Colors only, or Sizes and colors. Existing products stay in No variants with their original IDs, URLs, images, pricing and inventory. The migration does not invent options or split old stock into made-up combinations.
+
+1. Add your custom size and/or color names. Move up/down changes display order. Uncheck Available to stop selling that option. Duplicate names are rejected.
+2. For each color, optionally enter a six-digit HEX swatch and upload JPG, PNG or WebP images, or paste existing image URLs, one per line. Previews appear before saving. Up to 12 images per color, 4 MB each, subject to your host's total upload limits. Product-level images remain the default gallery.
+3. Add only the combinations you actually sell. Choose their size/color, enter stock and optional SKU and price override. A blank override uses the base product price and sale price. An override becomes that combination's regular price and replaces both base regular and sale prices; existing offer/code eligibility still applies. Duplicate combinations and duplicate product-level SKUs are rejected.
+4. Save changes. Product stock becomes the sum of available, nonarchived combinations. Zero-stock or unavailable combinations cannot be purchased. No combinations are created automatically.
+
+Stock is tracked separately for each actual configuration. A used combination's size/color identity cannot be changed: archive it and add another configuration. Its labels and SKU can be renamed; saved orders retain their original snapshots. Removal asks for confirmation and preserves historical records. Products with variant history should be disabled instead of permanently deleted. Duplicating a variant product creates independent options/combinations on a hidden copy with **zero variant stock**, ready for explicit stock entry.
+
+### Customer behavior
+
+Product cards show actual option counts and a Choose link. The product page requires all relevant options; unavailable selections cannot be added. Choosing a color updates the actual main image and all gallery thumbnails without a reload, and thumbnail clicks still work. Changing size preserves the color. A color with no dedicated images uses the product gallery with an explicit notice. The editor and interactive purchasing controls require JavaScript, consistent with the site's existing add-to-bag flow.
+
+Different configurations of one product stay separate in the bag, including their color-specific thumbnails and labels. Identical configurations merge consistently. Quantity and removal use a stable product/variant line key. This site's existing bag has quantity/removal controls, not an in-place variant editor; remove a configuration and choose its replacement on the product page.
+
+Checkout revalidates ownership, availability, price and stock on the server. Orders save product and variant IDs, original size/color/SKU, the selected image, quantity, unit price, allocated merchandise discount and final line total. Customer confirmation, history and admin details read these saved snapshots. Older orders remain readable. Existing automatic offers, welcome email discounts, manual promo codes, governorate delivery, COD and order status behavior remain integrated. There is no separate invoice generator or external payment gateway in this project to extend.
+
+Purchases use atomic stock debits inside the checkout transaction. The established checkout idempotency key prevents repeat debits. Cancellation returns stock to the exact original configuration once, including archived rows, without making archived inventory available for sale. A revision check prevents an old editor tab overwriting stock changed by checkout or another editor; reload the product form if that message appears.
+
+### Deployment and migration
+
+Use the refreshed `ms-charm-public-html.zip` or the synchronized `outputs/public_html` folder. Merge the supplied files directly into Hostinger's existing `public_html`; keep all supplied .htaccess files. Preserve the live `.env`, existing `storage/` contents and `uploads/`. The packages exclude all runtime databases, sessions, test owners, uploaded test images and secrets. No new .env keys are required. Keep `PUBLIC_PATH=.` for the flattened Hostinger layout.
+
+After uploading, sign in and open **Admin → Products**. That authorized page safely applies the additive variant migration. CLI alternative from public_html: `php bin/variants-migrate.php`. Repeated runs preserve data. Do not import the fresh-install SQL into an existing live database and do not rerun a database reset. Existing products need explicit configuration before they gain options.
+
+New tables: `product_options`, `product_variants`, `variant_mutex`. Added product columns: `size_enabled`, `color_enabled`, `variant_revision`. Added order-item columns: `variant_id`, `variant_snapshot`, `line_discount`, `final_line_total`. Indexed ownership/combination lookups and product-level option/SKU uniqueness protect consistency. The migration supports SQLite and MySQL. `php bin/variants-migrate.php down` is available only before any variant configuration or newly saved line history exists; it refuses to erase used data. Normal production rollback should retain the additive schema and order history.
+
+No live Hostinger deployment or production database change was performed by this task.
+
+### Changed files
+
+New: `database/variants-migration.php`, `bin/variants-migrate.php`, `app/services/variants.php`, `app/views/variants-admin.php`, `app/views/variants-product.php`, `app/views/order-item-variant.php`, `public/assets/variants.js`, `tests/variants.php`, `tests/variants-http.php`, `tests/variants-concurrency.php`, and four source-only PNG fixtures under `tests/fixtures/`.
+
+Updated: `database/schema.php`, regenerated `database/schema.mysql.sql`, `bin/install.php`, `app/bootstrap.php`, `app/services/cms.php`, `app/services/catalog.php`, `app/services/orders.php`, `app/services/offers.php`, `app/services/promo.php`, `public/index.php`, `public/assets/store.js`, `public/assets/style.css`, and views `admin.php`, `product.php`, `product-card.php`, `cart.php`, `checkout.php`, `checkout-legacy.php`, `totals.php`, `confirmation.php`, `account.php`, `layout.php`. README and flattened-deployment notes updated; both source and Hostinger ZIPs rebuilt and verified against the main folder.
+
+### Validation
+
+679 automated assertions passed in this release's runs:
+
+| Suite | Assertions |
+| --- | ---: |
+| Variant service tests, SQLite and MySQL | 65 each = 130 |
+| Variant HTTP admin/uploads/cart/checkout/auth/history | 36 |
+| Simultaneous MySQL variant purchases/edit barrier | 4 |
+| Existing promo / offers / welcome / delivery / governorates / subcategories service regressions | 78 / 60 / 38 / 59 / 54 / 25 = 314 |
+| Existing integration / promo / offers / governorates HTTP regressions | 74 / 38 / 20 / 54 = 186 |
+| Popup preference JavaScript tests | 9 |
+
+The variant HTTP suite was repeated successfully after making its image fixtures portable. Fresh and repeated installs passed on SQLite and MySQL. All 96 PHP source/test files passed syntax checks; both production JavaScript files passed Node syntax checks. This dependency-free PHP/vanilla-JavaScript project has no separate bundler production-build or type-check step. The actual distribution build is the verified ZIP packaging step.
+
+Browser verification covered Black's two uploaded images and thumbnail switching, White's separate image and USD 28 override, the missing-image notice/fallback, required/disabled sizes, separate Black/S and White/M bag lines, adding/saving a custom L size and Beige/L combination, reordering sizes, editor previews, and zero console errors. Product layout was checked at widths 320, 390, 768 and 1280; the editor and bag were also checked at 390 with no horizontal overflow. Screenshot `outputs/variants-desktop.png` uses clearly labelled disposable test images; they are not included as live catalog content.
+
+Reproduction: `php tests/variants.php` uses a disposable SQLite database. For MySQL, set `TEST_DB_DRIVER=mysql` and DB connection variables to an empty disposable database. HTTP tests require the local test server and disposable `APP_ENV=test` database (`php tests/variants-http.php`); fixture PNGs are bundled in the source-only tests directory. The concurrency harness uses separate CLI workers and a MySQL test database; never point test suites at a live store.

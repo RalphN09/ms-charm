@@ -63,3 +63,9 @@ After uploading this release, sign in and open **Delivery & Shipping Settings** 
 Review all eight fees and coverage. Conflicting or missing old rates remain unavailable until you explicitly set and confirm them. Unrecognized old governorate labels also require review. A previously active global flat rate is preserved across the eight governorates; uniform city rates can carry over. The old Other area fallback is not assigned automatically. Original orders and city-based records are retained. Do not import a fresh-install schema into an existing live database.
 
 Customers then select only their governorate and type their city, street and building details. No new .env settings or external mapping service are needed. The README's latest governorate report lists the exact migration rules and tests.
+
+## Product variants upgrade
+
+After merging this release into public_html, open **Admin → Products** while signed in as an administrator. The page applies the safe additive migration. CLI alternative from this directory: `php bin/variants-migrate.php`. Keep the live .env, storage and uploads; no new environment keys or database reset are needed. Existing products retain their current no-variant behavior.
+
+Edit a product and find **Product Variants**. Choose sizes, colors or both, add custom options and color images, then add the actual combinations with stock and optional SKU/price. Blank overrides use the product price/sale price. Save before testing on the storefront. Used configurations are archived when removed; their order snapshots remain intact. Read the README's latest Product variants release report for pricing rules, inventory behavior, changed files and validation.

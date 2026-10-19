@@ -1,0 +1,57 @@
+'use strict';
+// Optional product editor. Dynamic labels and URLs are assigned as text/attributes, never HTML.
+document.querySelectorAll('[data-variant-admin]').forEach(editor=>{
+  const form=editor.closest('form'),initial=JSON.parse(editor.dataset.config),mode=editor.querySelector('[data-variant-mode]');
+  const optionLists={sizes:editor.querySelector('[data-option-list="sizes"]'),colors:editor.querySelector('[data-option-list="colors"]')};
+  const combinations=editor.querySelector('[data-combination-list]'),note=editor.querySelector('[data-variant-editor-status]');let lastMode=initial.mode;
+  const key=()=> 'new_'+Array.from(crypto.getRandomValues(new Uint8Array(8)),b=>b.toString(16).padStart(2,'0')).join('');
+  const confirmArchive=message=>{if(!window.confirm(message+' Saved orders remain unchanged.'))return false;form.elements.confirm_variant_archive.value='1';return true;};
+  const optionData=group=>Array.from(optionLists[group].children,row=>({key:row.dataset.key,id:row.dataset.id||'',label:row.querySelector('[data-option-label]').value.trim(),active:row.querySelector('[data-option-active]').checked,swatch:row.querySelector('[data-option-swatch]').value.trim(),images:row.querySelector('[data-option-images]').value}));
+  function serialize(){const d={mode:mode.value,sizes:optionData('sizes'),colors:optionData('colors'),variants:Array.from(combinations.children,row=>({id:row.dataset.id||'',size:row.querySelector('[data-combination-size]').value,color:row.querySelector('[data-combination-color]').value,sku:row.querySelector('[data-combination-sku]').value,price:row.querySelector('[data-combination-price]').value,stock:row.querySelector('[data-combination-stock]').value,active:row.querySelector('[data-combination-active]').checked}))};form.elements.variant_payload.value=JSON.stringify(d);return d;}
+  function sync(){
+    const sizes=['sizes','both'].includes(mode.value),colors=['colors','both'].includes(mode.value);
+    editor.querySelectorAll('[data-variant-panel]').forEach(panel=>{panel.hidden=panel.dataset.variantPanel==='sizes'?!sizes:panel.dataset.variantPanel==='colors'?!colors:mode.value==='none';panel.querySelectorAll('input,select,textarea,button').forEach(c=>c.disabled=panel.hidden);});
+    combinations.querySelectorAll('[data-combination-size],[data-combination-color]').forEach(select=>{
+      const group=select.hasAttribute('data-combination-size')?'sizes':'colors',value=select.value,required=group==='sizes'?sizes:colors;
+      select.replaceChildren(new Option('Choose '+(group==='sizes'?'size':'color'),''));for(const o of optionData(group))select.add(new Option(o.label||'Unnamed option',o.key));select.value=value;
+      select.closest('label').hidden=!required;select.required=required;select.disabled=!required||!!select.closest('[data-combination-row]').dataset.id;
+    });
+    for(const [group,list] of Object.entries(optionLists))list.querySelectorAll('[data-color-fields]').forEach(panel=>{panel.hidden=group!=='colors';panel.querySelectorAll('input,textarea').forEach(c=>c.disabled=panel.hidden||!colors);});
+    if(form.elements.stock){form.elements.stock.readOnly=mode.value!=='none';}
+    serialize();
+  }
+  function previews(row){const box=row.querySelector('[data-option-previews]');box.replaceChildren();for(const url of row.querySelector('[data-option-images]').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean)){if(!/^https:\/\//.test(url)&&!/^\/(?!\/)/.test(url))continue;const img=document.createElement('img');img.src=url;img.alt='Color image preview';box.append(img);}
+    for(const file of row.querySelector('[data-option-upload]').files){const reader=new FileReader();reader.onload=()=>{const img=document.createElement('img');img.src=String(reader.result);img.alt='New color upload preview';box.append(img);};reader.readAsDataURL(file);}
+  }
+  function addOption(group,o={}){if(optionLists[group].children.length>=50){note.textContent='Use at most 50 options per type.';return;}const row=form.querySelector('[data-option-template]').content.firstElementChild.cloneNode(true);row.dataset.key=o.key||key();row.dataset.id=o.id||'';row.querySelector('[data-option-label]').value=o.label||'';row.querySelector('[data-option-label]').setAttribute('aria-label',(group==='sizes'?'Size':'Color')+' name');row.querySelector('[data-option-active]').checked=o.active!==false;row.querySelector('[data-option-swatch]').value=o.swatch||'';row.querySelector('[data-option-images]').value=o.images||'';row.querySelector('[data-option-upload]').name='variant_images['+row.dataset.key+'][]';
+    row.querySelector('[data-option-up]').addEventListener('click',()=>{if(row.previousElementSibling)row.parentNode.insertBefore(row,row.previousElementSibling);sync();});row.querySelector('[data-option-down]').addEventListener('click',()=>{if(row.nextElementSibling)row.parentNode.insertBefore(row.nextElementSibling,row);sync();});
+    row.querySelector('[data-option-remove]').addEventListener('click',()=>{if(!confirmArchive('Remove this option and archive its combinations?'))return;for(const v of Array.from(combinations.children))if(v.querySelector('[data-combination-size]').value===row.dataset.key||v.querySelector('[data-combination-color]').value===row.dataset.key)v.remove();row.remove();sync();});
+    row.querySelector('[data-option-images]').addEventListener('change',()=>previews(row));row.querySelector('[data-option-upload]').addEventListener('change',()=>previews(row));row.querySelector('[data-option-label]').addEventListener('input',event=>event.target.setCustomValidity(''));optionLists[group].append(row);previews(row);sync();
+  }
+  function addCombination(v={}){if(combinations.children.length>=500){note.textContent='Use at most 500 combinations.';return;}const row=form.querySelector('[data-combination-template]').content.firstElementChild.cloneNode(true);row.dataset.combinationRow='1';row.dataset.id=v.id||'';for(const name of ['sku','price','stock'])row.querySelector('[data-combination-'+name+']').value=v[name]??(name==='stock'?'0':'');row.querySelector('[data-combination-active]').checked=v.active!==false;row.querySelector('[data-combination-used]').hidden=!v.used;
+    row.querySelector('[data-combination-remove]').addEventListener('click',()=>{if(!confirmArchive(v.used?'This configuration is used by orders. Archive it?':'Remove this combination?'))return;row.remove();sync();});combinations.append(row);sync();row.querySelector('[data-combination-size]').value=v.size||'';row.querySelector('[data-combination-color]').value=v.color||'';serialize();
+  }
+  mode.value=initial.mode;for(const group of ['sizes','colors'])for(const o of initial[group])addOption(group,o);for(const v of initial.variants)addCombination(v);
+  editor.querySelectorAll('[data-add-option]').forEach(b=>b.addEventListener('click',()=>addOption(b.dataset.addOption)));editor.querySelector('[data-add-combination]').addEventListener('click',()=>addCombination());
+  mode.addEventListener('change',()=>{if(combinations.children.length&&mode.value!==lastMode){if(!confirmArchive('Changing variant types archives the existing combinations. Add the new configurations before saving. Continue?')){mode.value=lastMode;return;}combinations.replaceChildren();}lastMode=mode.value;sync();});
+  editor.addEventListener('input',event=>{if(event.target.hasAttribute('data-option-label')||event.target.hasAttribute('data-option-active'))sync();else serialize();});editor.addEventListener('change',()=>serialize());
+  form.addEventListener('submit',event=>{const d=serialize();if(d.mode==='none')return;for(const group of ['sizes','colors']){if(group==='sizes'&&!['sizes','both'].includes(d.mode)||group==='colors'&&!['colors','both'].includes(d.mode))continue;const names=d[group].map(o=>o.label.trim().replace(/\s+/g,' ').toLocaleLowerCase());if(new Set(names).size!==names.length){event.preventDefault();note.textContent='Remove duplicate '+group+' before saving.';return;}}if(!d.variants.length){event.preventDefault();note.textContent='Add the actual combinations you sell before saving.';}});sync();
+});
+
+document.querySelectorAll('[data-variant-product]').forEach(root=>{
+  const d=JSON.parse(root.dataset.variantConfig),size=root.querySelector('[data-variant-size]'),colorButtons=Array.from(root.querySelectorAll('[data-select-color]'));
+  const price=root.querySelector('[data-variant-price]'),selection=root.querySelector('[data-variant-selection]'),stock=root.querySelector('[data-variant-stock]'),quantity=root.querySelector('#product-quantity'),buy=Array.from(root.querySelectorAll('[data-add]'));
+  const main=root.querySelector('#product-main-image'),gallery=root.querySelector('[data-variant-gallery]'),imageNote=root.querySelector('[data-variant-image-note]');let color='';
+  function setImages(c){const images=c?.images.length?c.images:d.images;main.src=images[0]||'/assets/favicon.svg';main.alt=d.name+(c?' — '+c.label:'');gallery.replaceChildren();images.forEach((url,i)=>{const button=document.createElement('button'),img=document.createElement('img');button.type='button';button.dataset.image=url;button.setAttribute('aria-label','View '+(c?.label||'product')+' image '+(i+1));img.src=url;img.alt='';img.loading='lazy';button.append(img);gallery.append(button);});imageNote.textContent=c&&!c.images.length?'No dedicated images configured for '+c.label+'; showing the product’s default gallery.':'';}
+  main.addEventListener('error',()=>{if(main.getAttribute('src')==='/assets/favicon.svg')return;const fallback=d.images[0]||'/assets/favicon.svg';main.src=main.getAttribute('src')===fallback?'/assets/favicon.svg':fallback;imageNote.textContent='This image is unavailable. Showing a default product image.';});
+  function update(){
+    const available=d.variants.filter(v=>v.available);for(const button of colorButtons){button.setAttribute('aria-pressed',String(button.dataset.selectColor===color));button.disabled=!available.some(v=>v.color_id===button.dataset.selectColor);}
+    if(size){for(const option of size.options)if(option.value)option.disabled=!available.some(v=>v.size_id===option.value&&(!color||v.color_id===color));if(size.selectedOptions[0]?.disabled)size.value='';}
+    const selected=d.variants.find(v=>(!d.size_enabled||v.size_id===size.value)&&(!d.color_enabled||v.color_id===color));
+    const ready=!!selected?.available&&(!d.size_enabled||!!size.value)&&(!d.color_enabled||!!color);
+    selection.textContent=[d.colors.find(c=>c.id===color)?.label,d.sizes.find(s=>s.id===size?.value)?.label,ready&&selected.sku?'SKU: '+selected.sku:''].filter(Boolean).join(' · ');
+    stock.textContent=ready?selected.stock+' available':'Choose all required options. Unavailable combinations cannot be added.';quantity.disabled=!ready;quantity.max=ready?String(Math.min(99,selected.stock)):'1';if(ready&&Number(quantity.value)>Number(quantity.max))quantity.value=quantity.max;
+    buy.forEach(button=>{button.disabled=!ready;button.dataset.variantId=ready?selected.id:'';});price.replaceChildren(document.createTextNode(ready?selected.price:root.dataset.startingPrice));if(ready&&selected.price!==selected.regular_price){const del=document.createElement('del');del.textContent=selected.regular_price;price.append(' ',del);}
+  }
+  for(const button of colorButtons)button.addEventListener('click',()=>{color=button.dataset.selectColor;setImages(d.colors.find(c=>c.id===color));update();});size?.addEventListener('change',update);update();
+});

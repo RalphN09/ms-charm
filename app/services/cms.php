@@ -74,6 +74,11 @@ function cms_write(string $entity,array $data): string {
     $actorId=current_user()['id'];
     db()->beginTransaction();
     try {
+        if($entity==='products'){
+            variants_lock();$current=$old?row('SELECT * FROM products WHERE id=?'.variants_for_update(),[$id]):['variant_revision'=>0];
+            if($old&&!$current)throw new DomainException('Product no longer exists.');
+            if($old&&has_variants($current)&&!array_key_exists('variant_payload',$data))$clean['stock']=$current['stock'];
+        }
         if($entity==='categories' && $clean['parent_id']){
             $all=rows('SELECT * FROM categories ORDER BY id'.(env('DB_DRIVER')==='mysql'?' FOR UPDATE':''));
             if(!in_array($clean['parent_id'],array_column($all,'id'),true))throw new DomainException('Parent category not found.');
@@ -84,6 +89,7 @@ function cms_write(string $entity,array $data): string {
             if(count($owners)<=1)throw new DomainException('Keep at least one active owner or developer.');
         }
         if($old)update_record($table,$id,$clean);else insert_record($table,$clean);
+        if($entity==='products'){variant_save($id,$data,$current);if(variants_ready()&&!array_key_exists('variant_payload',$data)&&has_variants($current))variant_refresh_stock($id);}
         audit($old?'update':'create',$entity,$id);db()->commit();
         if($entity==='users' && $id===$actorId)$_SESSION['auth_version']=$clean['auth_version'];
         return $id;
@@ -92,6 +98,7 @@ function cms_write(string $entity,array $data): string {
 function cms_delete(string $entity,string $id): void {
     require_admin($entity==='users');cms_fields($entity);
     if(in_array($entity,['homepage','users'],true))throw new DomainException('Disable this record instead of deleting it.');
+    if($entity==='products'&&variants_ready()&&row('SELECT id FROM product_variants WHERE product_id=? LIMIT 1',[$id]))throw new DomainException('Disable this product instead. Its variant and inventory history must be preserved.');
     if($entity==='pages' && in_array($id,['about','privacy','terms','faq','delivery-returns'],true))throw new DomainException('Core store pages cannot be deleted.');
     db()->beginTransaction();try {query('DELETE FROM '.cms_table($entity).' WHERE id=?',[$id]);audit('delete',$entity,$id);db()->commit();}catch(Throwable $e){db()->rollBack();throw $e;}
 }

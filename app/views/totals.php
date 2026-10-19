@@ -11,3 +11,5 @@
 <?php elseif($offer['status']==='expired'): ?><small>Your welcome offer has ended. The totals above do not include it.</small><?php else: ?><small>Your welcome offer has already been redeemed.</small><?php endif ?></div><?php endif ?>
 
 <?php $delivery=$cart['delivery_details'];if($delivery['mode']!=='legacy'): ?><div class="delivery-quote-note" data-delivery-status="<?= e($delivery['status']) ?>"><?php if($delivery['name']): ?><p><strong><?= $delivery['mode']==='governorate'?'Governorate:':'Delivery area:' ?></strong> <?= e($delivery['name']) ?></p><?php endif ?><?php if($delivery['message']): ?><p class="<?= $delivery['status']==='ready'?'muted':'error-text' ?>"><?= e($delivery['message']) ?></p><?php endif ?><?php if($delivery['status']==='ready'): ?><p><?= e($delivery['estimate']) ?></p><p><?= e($delivery['notes']) ?></p><?php endif ?></div><?php endif ?>
+
+<?php if(!empty($cart['variant_error'])): ?><p class="error-text" role="status"><?= e($cart['variant_error']) ?></p><?php endif ?>
