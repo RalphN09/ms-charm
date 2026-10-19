@@ -10,3 +10,6 @@ else echo "Schema already installed. Existing data preserved.\n";
 welcome_migrate_up();
 require_once ROOT.'/database/offers-migration.php';offers_migrate_up();
 require_once ROOT.'/database/delivery-migration.php';delivery_migrate_up();
+require_once ROOT.'/database/promo-migration.php';promo_migrate_up();
+
+require_once ROOT.'/database/governorate-migration.php';governorate_migrate_up();

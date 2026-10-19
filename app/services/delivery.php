@@ -14,6 +14,7 @@ function delivery_areas(): array {return delivery_ready()?rows('SELECT * FROM de
 function delivery_label(array $a): string {return $a['name'].' — '.implode(' / ',array_unique(array_filter([$a['governorate'],$a['district'],$a['locality']])));}
 function delivery_normalize(string $s): string {return trim(preg_replace('/[\p{Z}\s\p{P}]+/u',' ',mb_strtolower($s)));}
 function delivery_price(int $subtotal,bool $lock=false,?string $areaId=null,bool $preview=false,?array $store=null): array {
+    if(governorate_ready())return governorate_price($subtotal,$lock,$areaId,$store);
     $s=$store??delivery_store($lock);$c=delivery_config($lock);$id=$areaId??($_SESSION['delivery_area']??'');
     $q=['status'=>'ready','message'=>'','area_id'=>null,'name'=>'Standard delivery','fee'=>0,'currency'=>$s['currency'],'minimum_amount'=>0,'notes'=>'','estimate'=>'','governorate'=>'','district'=>'','locality'=>'','identifier'=>'','mode'=>'legacy'];
     if(!$c['enabled']&&!$preview){$q['fee']=$subtotal>0?cents((string)$s['delivery_fee']):0;if((float)$s['free_delivery_threshold']>0&&$subtotal>=cents((string)$s['free_delivery_threshold']))$q['fee']=0;}
@@ -34,15 +35,20 @@ function delivery_price(int $subtotal,bool $lock=false,?string $areaId=null,bool
     $q['signature']=hash('sha256',json_encode($q));return $q;
 }
 function delivery_prefill(): array {
-    if(isset($_SESSION['checkout_address']))return $_SESSION['checkout_address'];
+    if(governorate_ready()){
+        $user=current_user();$saved=$user?json_decode(row('SELECT delivery_profile FROM users WHERE id=?',[$user['id']])['delivery_profile']??'{}',true):[];
+        $draft=[...($saved?:[]),...($_SESSION['checkout_address']??[])];$draft=governorate_prefill($draft);if($draft)$_SESSION['checkout_address']=$draft;return $draft;
+    }
+    if(isset($_SESSION['checkout_address'])){if(governorate_ready())$_SESSION['checkout_address']=governorate_prefill($_SESSION['checkout_address']);return $_SESSION['checkout_address'];}
     $u=current_user();$draft=[];
     if($u&&delivery_ready())$draft=json_decode(row('SELECT delivery_profile FROM users WHERE id=?',[$u['id']])['delivery_profile']??'{}',true)?:[];
-    if($draft){$_SESSION['checkout_address']=$draft;$_SESSION['delivery_area']=$draft['delivery_area']??'';}return $draft;
+    if($draft){if(governorate_ready())$draft=governorate_prefill($draft);$_SESSION['checkout_address']=$draft;$_SESSION['delivery_area']=$draft['delivery_area']??'';}return $draft;
 }
 function delivery_capture(array $data,bool $validate=false): array {
-    $draft=[];foreach(['customer_name'=>120,'phone'=>40,'email'=>254,'address'=>1500,'city'=>120,'building'=>120,'floor'=>80,'notes'=>2000,'delivery_area'=>32] as $k=>$max)$draft[$k]=text_input($data,$k,$max);
+    $draft=[];foreach(['customer_name'=>120,'phone'=>40,'email'=>254,'address'=>1500,'city'=>120,'building'=>120,'floor'=>80,'notes'=>2000,'delivery_area'=>32,'governorate'=>32] as $k=>$max)$draft[$k]=text_input($data,$k,$max);
     $draft['save_address']=flag($data,'save_address');
     $_SESSION['checkout_address']=$draft;$_SESSION['delivery_area']=$draft['delivery_area'];
+    if(governorate_ready()){$_SESSION['delivery_governorate']=$draft['governorate'];if($validate)governorate_id($draft['governorate']);return $draft;}
     if($validate && delivery_config()['enabled'] && $draft['delivery_area']==='')throw new DomainException('Please select your delivery area and review the delivery fee.');return $draft;
 }
 function delivery_remember_quote(string $key,array $cart): void {
@@ -52,24 +58,24 @@ function delivery_remember_quote(string $key,array $cart): void {
 function delivery_update_quote(array $data): array {
     rate_limit('delivery_quote',120,3600);$key=text_input($data,'idempotency_key',64,true);
     if(!isset($_SESSION['checkout_keys'][$key]))throw new DomainException('Please reopen checkout to refresh your delivery quote.');
-    if(isset($data['delivery_revision'])){
-        $revision=int_input($data,'delivery_revision',1,1000000000);
-        if($revision<=(int)($_SESSION['delivery_revisions'][$key]??0))throw new DomainException('A newer delivery selection is already being reviewed. Please use your latest selection.');
-        $_SESSION['delivery_revisions'][$key]=$revision;
-    }
+    delivery_accept_revision($data,$key);
     delivery_capture($data);$cart=cart_totals();
     if($cart['delivery_details']['mode']==='area' && $cart['delivery_details']['locality']!=='')$_SESSION['checkout_address']['city']=$cart['delivery_details']['locality'];
     delivery_remember_quote($key,$cart);return $cart;
 }
+function delivery_accept_revision(array $data,string $key): void {
+    if(isset($data['delivery_revision'])){$revision=int_input($data,'delivery_revision',1,1000000000);if($revision<=(int)($_SESSION['delivery_revisions'][$key]??0))throw new DomainException('A newer delivery selection is already being reviewed. Please use your latest selection.');$_SESSION['delivery_revisions'][$key]=$revision;}
+}
 function delivery_order_fields(array $data,array $cart): array {
     $q=$cart['delivery_details'];$draft=$_SESSION['checkout_address']??[];
-    $building=text_input($data,'building',120,delivery_config()['enabled']);$floor=text_input($data,'floor',80);
+    $building=text_input($data,'building',120,!governorate_ready()&&delivery_config()['enabled']);$floor=text_input($data,'floor',80);
     $address=text_input($data,'address',1500,true);$city=$q['mode']==='area'&&$q['locality']!==''?$q['locality']:text_input($data,'city',120,true);
-    $snapshot=$q;unset($snapshot['signature']);$snapshot['street']=$address;$snapshot['building']=$building;$snapshot['floor']=$floor;$snapshot['instructions']=text_input($data,'notes',2000);
+    $snapshot=$q;unset($snapshot['signature']);$snapshot['street']=$address;$snapshot['city']=$city;$snapshot['building']=$building;$snapshot['floor']=$floor;$snapshot['instructions']=text_input($data,'notes',2000);
     $full=$address.($building!==''?"\nBuilding: ".$building:'').($floor!==''?"\nFloor / apartment: ".$floor:'');
-    return ['address'=>$full,'city'=>$city,'delivery_area_id'=>$q['area_id'],'delivery_snapshot'=>json_encode($snapshot,JSON_UNESCAPED_UNICODE)];
+    return ['address'=>$full,'city'=>$city,'delivery_area_id'=>$q['area_id'],'delivery_snapshot'=>json_encode($snapshot,JSON_UNESCAPED_UNICODE),...(governorate_ready()?['delivery_governorate'=>$q['governorate_id']]:[])];
 }
 function delivery_admin_action(array $d): void {
+    if(governorate_ready())throw new DomainException('City-based delivery controls are retired. Save a governorate rate in Delivery settings instead.');
     require_admin();$action=text_input($d,'action',20,true);db()->beginTransaction();try{
         delivery_lock();$s=delivery_store(true);
         if($action==='settings'){

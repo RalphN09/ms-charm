@@ -1,4 +1,4 @@
-<?php $offer=welcome_status($user);if($user['role']==='customer'): ?>
+<?php if(promo_ready()){require ROOT.'/app/views/promo-account.php';return;}$offer=welcome_status($user);if($user['role']==='customer'): ?>
 <section class="panel welcome-account" data-welcome-status="<?= e($offer['status']??'unavailable') ?>" aria-labelledby="welcome-account-title"><span class="eyebrow">A LITTLE SOMETHING FOR YOU</span><h2 id="welcome-account-title">Your welcome offer</h2>
 <?php if(!$offer): ?><p>This account does not have a welcome offer. Offers are granted only to eligible new customers at registration.</p>
 <?php elseif($offer['status']==='active'): ?><p><strong><?= (int)$offer['percentage'] ?>% off full-priced pieces in your first order.</strong></p><p><span class="status-tag">Active</span></p><p>Expires <?= e(welcome_expiry_label($offer['expires_at'])) ?>.</p><small>Sale items, delivery and tax are excluded. Your bag uses the better of welcome or promotional savings, without stacking. Your first order ends eligibility; an order containing only sale items ends its eligibility without a discount.</small><a class="button" href="/shop">Continue shopping</a>

@@ -1,3 +1,4 @@
+<?php if(promo_ready()): ?><section class="panel"><h2>Email-only welcome codes</h2><p>Settings above apply to future email claims. Issued codes retain their percentage and expiry. No account or password is required. Unpaid orders reserve codes; payment or completed delivery finalizes use. An unpaid cancellation releases the code before expiry.</p><p>Email delivery and ownership verification are not configured. Entering an email does not prove ownership.</p><a class="button" href="/admin/offers?tab=codes&amp;kind=welcome">Manage welcome codes</a></section><?php return;endif ?>
 <?php
 query("UPDATE welcome_promotions SET status='expired',reason='time_elapsed' WHERE status='active' AND expires_at<=?",[welcome_now()]);
 $welcomeStats=rows('SELECT status,COUNT(*) AS quantity FROM welcome_promotions GROUP BY status');$counts=['active'=>0,'redeemed'=>0,'expired'=>0];foreach($welcomeStats as $stat)$counts[$stat['status']]=(int)$stat['quantity'];

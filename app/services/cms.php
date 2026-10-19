@@ -6,13 +6,13 @@ function settings(string $group): array {
 }
 function setting_fields(): array {
     return [
-        'welcome'=>['enabled'=>['Enable welcome offer for future registrations','checkbox'],'percentage'=>['Welcome discount percentage (1–100)','number',true],'duration_hours'=>['Validity in hours (1–168)','number',true]],
+        'welcome'=>['enabled'=>['Enable email welcome claims','checkbox'],'percentage'=>['Welcome discount percentage (1–100)','number',true],'duration_hours'=>['Validity in hours (1–168)','number',true]],
         'branding'=>['name'=>['Business name','text',true],'slogan'=>['Slogan','text',true],'primary'=>['Primary color','color',true],'secondary'=>['Secondary color','color',true],'accent'=>['Accent color','color',true],'logo'=>['Logo image URL','image'],'favicon'=>['Favicon URL','image']],
         'contact'=>['email'=>['Business email','email'],'phone'=>['Phone number','text'],'whatsapp'=>['WhatsApp number','text'],'address'=>['Address','textarea'],'city'=>['City / area','text'],'hours'=>['Business hours','text'],'heading'=>['Contact page heading','text'],'description'=>['Contact page introduction','textarea'],'form_enabled'=>['Enable contact form','checkbox']],
         'social'=>['instagram'=>['Instagram URL','url'],'facebook'=>['Facebook URL','url'],'tiktok'=>['TikTok URL','url'],'whatsapp'=>['WhatsApp HTTPS link','url'],'other'=>['Other social link','url']],
         'footer'=>['text'=>['Footer description','textarea'],'copyright'=>['Copyright text','text']],
         'seo'=>['title'=>['Default website title','text',true],'description'=>['Default meta description','textarea',true],'sharing_image'=>['Social sharing image URL','image']],
-        'store'=>['currency'=>['Currency code (e.g. USD)','text',true],'delivery_fee'=>['Legacy flat delivery fee (used when location-based delivery is off)','money',true],'free_delivery_threshold'=>['Free delivery from (0 to disable)','money',true],'minimum_order'=>['Minimum order amount','money',true],'tax_rate'=>['Tax rate (%)','number',true],'open'=>['Accept new orders','checkbox'],'delivery_description'=>['Delivery description','textarea'],'payment_label'=>['Cash on delivery label','text',true],'announcement'=>['Announcement bar text','text'],'announcement_enabled'=>['Show announcement bar','checkbox']],
+        'store'=>['currency'=>['Currency code (e.g. USD)','text',true],'delivery_fee'=>['Legacy flat delivery fee (unused after governorate upgrade) (used when location-based delivery is off)','money',true],'free_delivery_threshold'=>['Free delivery from (0 to disable)','money',true],'minimum_order'=>['Minimum order amount','money',true],'tax_rate'=>['Tax rate (%)','number',true],'open'=>['Accept new orders','checkbox'],'delivery_description'=>['Delivery description','textarea'],'payment_label'=>['Cash on delivery label','text',true],'announcement'=>['Announcement bar text','text'],'announcement_enabled'=>['Show announcement bar','checkbox']],
     ];
 }
 function cms_fields(string $entity): array {

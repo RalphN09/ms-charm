@@ -17,6 +17,7 @@ function welcome_config(): array { return welcome_ready()?settings('welcome'):[.
 function welcome_issue(string $userId,string $email): ?array {
     // Called only within successful customer registration's transaction.
     if(!db()->inTransaction())throw new LogicException('Promotion issuance requires registration transaction.');
+    if(promo_ready())return null; // New welcome claims are email-only, independent of registration.
     $config=welcome_config();if(!$config['enabled'])return null;
     $email=strtolower(trim($email));$emailKey=hash('sha256',$email);
     if(row('SELECT id FROM welcome_promotions WHERE user_id=? OR email_key=?',[$userId,$emailKey]))return null;

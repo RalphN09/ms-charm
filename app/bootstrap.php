@@ -13,15 +13,18 @@ define('PUBLIC_ROOT',preg_match('~^(?:[A-Za-z]:|/)~',$publicPath)?$publicPath:RO
 date_default_timezone_set(env('APP_TIMEZONE', 'Asia/Beirut'));
 ini_set('display_errors', '0');
 ini_set('log_errors', '1');
+ini_set('zend.exception_ignore_args','1');
 ini_set('error_log', ROOT.'/storage/application.log');
 require_once ROOT.'/app/database.php';
 require_once ROOT.'/app/helpers.php';
 require_once ROOT.'/app/services/auth.php';
 require_once ROOT.'/app/services/welcome.php';
+require_once ROOT.'/app/services/promo.php';
 require_once ROOT.'/app/services/category-hierarchy.php';
 require_once ROOT.'/app/services/catalog.php';
 require_once ROOT.'/app/services/offers.php';
 require_once ROOT.'/app/services/delivery.php';
+require_once ROOT.'/app/services/governorates.php';
 require_once ROOT.'/app/services/orders.php';
 require_once ROOT.'/app/services/cms.php';
 if (PHP_SAPI !== 'cli') {

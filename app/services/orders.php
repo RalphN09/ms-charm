@@ -14,15 +14,16 @@ function place_order(array $data): array {
     db()->beginTransaction();
     try {
         // Serialize all checkout attempts for an account before reading products/offers.
-        delivery_lock();$s=delivery_store(true);if(!$s['open'])throw new DomainException('The store is currently closed for orders.');
+        promo_lock();delivery_lock();$s=delivery_store(true);if(!$s['open'])throw new DomainException('The store is currently closed for orders.');
         offers_lock();$customer=current_user();
         if($customer && env('DB_DRIVER')==='mysql')query('SELECT id FROM users WHERE id=? FOR UPDATE',[$customer['id']]);
         // A concurrent submission may have completed while the account lock was pending.
         $existing=row('SELECT * FROM orders WHERE idempotency_key=?'.(env('DB_DRIVER')==='mysql'?' FOR UPDATE':''),[$key]);
         if($existing){db()->commit();return $existing;}
         $cart=cart_totals(true);if(!$cart['items']) throw new DomainException('Your bag is empty.');
+        if($cart['promo_error']!=='')throw new DomainException($cart['promo_error'].' Remove or replace the code to continue.');
         if($cart['delivery_details']['status']!=='ready')throw new DomainException($cart['delivery_details']['message']);
-        if(delivery_config(true)['enabled'] && ($_SESSION['checkout_quotes'][$key]['delivery_signature']??'')!==$cart['delivery_details']['signature'])throw new DomainException('Your delivery area or rate changed. Review the updated delivery fee and total before placing your order.');
+        if((governorate_ready()||delivery_config(true)['enabled']) && ($_SESSION['checkout_quotes'][$key]['delivery_signature']??'')!==$cart['delivery_details']['signature'])throw new DomainException('Your delivery area or rate changed. Review the updated delivery fee and total before placing your order.');
         $addressFields=delivery_order_fields($data,$cart);$details['address']=$addressFields['address'];$details['city']=$addressFields['city'];
         $quotedDiscount=(int)($_SESSION['checkout_quotes'][$key]['discount']??0);
         if($quotedDiscount>$cart['discount'] || (isset($_SESSION['checkout_quotes'][$key]['total']) && $cart['total']>$_SESSION['checkout_quotes'][$key]['total']))throw new DomainException('Prices or offers changed. Review the updated checkout total and submit again.');
@@ -35,10 +36,10 @@ function place_order(array $data): array {
         $id=uuid();$reference='MC-'.gmdate('ymd').'-'.strtoupper(substr($id,0,8));
         $order=['id'=>$id,'reference'=>$reference,'user_id'=>current_user()['id']??null,...$details,'notes'=>text_input($data,'notes',2000),'internal_notes'=>'','subtotal'=>$cart['subtotal'],'delivery_fee'=>$cart['delivery'],'tax'=>$cart['tax'],'total'=>$cart['total'],'currency'=>$s['currency'],'status'=>'pending','payment_method'=>'cash_on_delivery','payment_status'=>'unpaid','idempotency_key'=>$key,'stock_released'=>0,'created_at'=>now(),'updated_at'=>now()];
         insert_record('orders',$order);
-        if(delivery_ready()){$saved=['delivery_area_id'=>$addressFields['delivery_area_id'],'delivery_snapshot'=>$addressFields['delivery_snapshot']];update_record('orders',$id,$saved);$order=[...$order,...$saved];
+        if(delivery_ready()){$saved=['delivery_area_id'=>$addressFields['delivery_area_id'],'delivery_snapshot'=>$addressFields['delivery_snapshot'],...(governorate_ready()?['delivery_governorate'=>$addressFields['delivery_governorate']]:[])];update_record('orders',$id,$saved);$order=[...$order,...$saved];
             if($customer && flag($data,'save_address')){$draft['city']=$details['city'];update_record('users',$customer['id'],['delivery_profile'=>json_encode($draft,JSON_UNESCAPED_UNICODE)]);}
         }
-        if(welcome_ready()){
+        if(welcome_ready()&&!promo_ready()){
             if($cart['welcome_discount']>0){
                 welcome_redeem($cart['welcome'],$id,$cart['welcome_discount']);
                 $pricing=['welcome_discount'=>$cart['welcome_discount'],'welcome_promotion_id'=>$cart['welcome']['id'],'welcome_percentage'=>(int)$cart['welcome']['percentage']];
@@ -46,6 +47,10 @@ function place_order(array $data): array {
             }elseif($cart['welcome'] && $cart['welcome']['status']==='active'){
                 query("UPDATE welcome_promotions SET status='expired',reason='first_order_placed' WHERE id=? AND status='active'",[$cart['welcome']['id']]);
             }
+        }
+        if(promo_ready()){
+            promo_reserve($cart,$id,$details['email']);$snapshot=$cart['promo']?['id'=>$cart['promo']['id'],'code'=>$cart['promo']['code'],'kind'=>$cart['promo']['kind'],'type'=>$cart['promo']['discount_type'],'value'=>(int)$cart['promo']['discount_value'],'discount'=>$cart['promo_discount'],'shipping_discount'=>$cart['promo_shipping_discount'],'currency'=>$s['currency'],'lines'=>$cart['promo_lines']]:null;
+            $saved=['promo_discount'=>$cart['promo_discount'],'promo_shipping_discount'=>$cart['promo_shipping_discount'],'promo_snapshot'=>$snapshot?json_encode($snapshot):null];update_record('orders',$id,$saved);$order=[...$order,...$saved];
         }
         if(offers_ready()){
             offers_redeem($cart['applied_offers'],$id);$pricing=['offer_discount'=>array_sum(array_column($cart['applied_offers'],'amount')),'offer_snapshot'=>json_encode($cart['applied_offers'])];update_record('orders',$id,$pricing);$order=[...$order,...$pricing];
@@ -60,7 +65,7 @@ function change_order(array $data): void {
     if(!in_array($status,ORDER_STATUSES,true)) throw new DomainException('Invalid order status.');
     db()->beginTransaction();
     try {
-        $o=row('SELECT * FROM orders WHERE id=?'.(env('DB_DRIVER')==='mysql'?' FOR UPDATE':''),[$id]);
+        promo_lock();$o=row('SELECT * FROM orders WHERE id=?'.(env('DB_DRIVER')==='mysql'?' FOR UPDATE':''),[$id]);
         if(!$o) throw new DomainException('Order not found.');
         if($o['status']==='cancelled' && $status!=='cancelled') throw new DomainException('Cancelled orders cannot be reopened. Create a new order.');
         if($o['status']==='completed' && $status!=='completed') throw new DomainException('Completed orders cannot be changed.');
@@ -70,6 +75,6 @@ function change_order(array $data): void {
         }
         $payment=text_input($data,'payment_status',30,true);
         if(!in_array($payment,['unpaid','paid','refunded'],true))throw new DomainException('Invalid payment status.');
-        update_record('orders',$id,['status'=>$status,'internal_notes'=>text_input($data,'internal_notes',5000),'payment_status'=>$payment,'updated_at'=>now()]);audit('update','orders',$id);db()->commit();
+        update_record('orders',$id,['status'=>$status,'internal_notes'=>text_input($data,'internal_notes',5000),'payment_status'=>$payment,'updated_at'=>now()]);promo_order_lifecycle([...$o,'status'=>$status,'payment_status'=>$payment]);audit('update','orders',$id);db()->commit();
     }catch(Throwable $e){if(db()->inTransaction())db()->rollBack();throw $e;}
 }

@@ -91,7 +91,7 @@ function offer_terms(array $o): string {
     if($o['minimum_amount'])$text.=' · Eligible purchase of '.money((int)$o['minimum_amount']).' minimum';
     if($o['maximum_discount'])$text.=' · Savings capped at '.money((int)$o['maximum_discount']).' per order';
     if($o['ends_at'])$text.=' · Ends '.welcome_expiry_label($o['ends_at']);
-    return $text.' · Offers cannot be combined. We apply the better of promotional savings and your welcome discount. Sale prices do not stack.';
+    return $text.(promo_ready()?' · Offers cannot be combined. Applying a promo or welcome code at checkout replaces automatic offers. Sale prices do not stack.':' · Offers cannot be combined. We apply the better of promotional savings and your welcome discount. Sale prices do not stack.');
 }
 function offers_public(): array {
     $products=products();$result=[];

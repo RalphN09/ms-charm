@@ -1,3 +1,5 @@
+<nav class="promo-tabs" aria-label="Offer management"><a class="text-link" href="/admin/offers">Automatic offers</a><a class="text-link" href="/admin/offers?tab=codes">Promo codes</a></nav>
+<?php if(($_GET['tab']??'')==='codes'){require ROOT.'/app/views/promo-admin.php';return;} ?>
 <?php
 $edit=text_input($_GET,'edit',32);$o=$edit?row('SELECT * FROM offers WHERE id=? AND deleted=0',[$edit]):null;
 if($edit&&!$o)throw new DomainException('Offer not found.');
@@ -7,7 +9,7 @@ $v=$o??$defaults;
 $localDate=fn($s)=>$s?(new DateTimeImmutable($s,new DateTimeZone('UTC')))->setTimezone(new DateTimeZone(env('APP_TIMEZONE','Asia/Beirut')))->format('Y-m-d\TH:i'):'';
 ?>
 <p><a class="button" href="/admin/offers?new=1">Create New Offer</a> <a class="text-link" href="/offers" target="_blank">View current offers</a></p>
-<p class="muted">One offer per piece, highest priority first; equal priorities use oldest offer first. The bag receives either promotional savings or its welcome discount, whichever saves more. Existing sale prices compete with offers. Fixed discounts apply per piece. No stacking. Limits count placed orders, including cancellations; customer limits require sign-in.</p>
+<p class="muted">One offer per piece, highest priority first; equal priorities use oldest offer first. <?= promo_ready()?'Applying a promo or welcome code at checkout replaces automatic offers.':'The bag receives either promotional savings or its welcome discount, whichever saves more.' ?> Existing sale prices compete with offers. Fixed discounts apply per piece. No stacking. Limits count placed orders, including cancellations; customer limits require sign-in.</p>
 <?php if($o||$new): $assigned=$o?rows('SELECT * FROM offer_products WHERE offer_id=?',[$o['id']]):[];$selected=array_column(array_filter($assigned,fn($a)=>!$a['excluded']),'product_id');$excluded=array_column(array_filter($assigned,fn($a)=>$a['excluded']),'product_id');$chosenCats=$o?array_column(rows('SELECT category_id FROM offer_categories WHERE offer_id=?',[$o['id']]),'category_id'):[]; ?>
 <form method="post" enctype="multipart/form-data" action="/admin/offers" class="panel cms-form" data-offer-form data-currency="<?= e(settings('store')['currency']) ?>" data-preview-image="<?= e(image_url($v['image'])) ?>"><?= csrf_field() ?><input type="hidden" name="section" value="offers"><input type="hidden" name="action" value="save"><input type="hidden" name="id" value="<?= e($v['id']) ?>">
 <h2><?= $o?'Edit offer':'Create offer' ?></h2><div class="form-grid">

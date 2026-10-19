@@ -1,4 +1,4 @@
 <?php
 if(PHP_SAPI!=='cli')exit('CLI only');
-require dirname(__DIR__).'/app/bootstrap.php';require ROOT.'/database/delivery-migration.php';delivery_migrate_up();
-echo "Delivery upgrade complete. Existing delivery settings remain in use until location-based delivery is enabled in Admin.\n";
+require dirname(__DIR__).'/app/bootstrap.php';require_once ROOT.'/database/governorate-migration.php';governorate_migrate_up();
+echo "Governorate delivery upgrade complete. Review all eight rates and migration notices in Admin. Historical orders are preserved.\n";

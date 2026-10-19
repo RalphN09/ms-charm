@@ -1,4 +1,39 @@
 'use strict';
+document.querySelectorAll('[data-welcome-claim]').forEach(form=>{
+  form.addEventListener('submit',async event=>{
+    event.preventDefault();if(!form.reportValidity()||form.dataset.busy==='1')return;
+    const button=form.querySelector('[type="submit"]'),note=form.querySelector('[data-claim-status]');
+    form.dataset.busy='1';button.disabled=true;form.setAttribute('aria-busy','true');note.textContent='Preparing your welcome code…';
+    try{
+      const response=await fetch('/api/welcome/claim',{method:'POST',body:new URLSearchParams(new FormData(form)),headers:{Accept:'application/json'},cache:'no-store'});
+      const result=await response.json();if(!response.ok)throw new Error(result.message||'Unable to claim your code. Please try again.');
+      form.querySelector('[data-claim-code]').value=result.code;
+      form.querySelector('[data-claim-expiry]').textContent='Your '+result.percentage+'% code expires '+result.expires+'.';
+      form.querySelector('[data-claim-result]').hidden=false;form.classList.add('is-claimed');note.textContent=result.message;
+    }catch(error){note.textContent=error.message||'Unable to reach the store. Please try again.';}
+    finally{form.dataset.busy='0';button.disabled=false;form.removeAttribute('aria-busy');}
+  });
+});
+document.querySelectorAll('[data-copy-code]').forEach(button=>button.addEventListener('click',async()=>{
+  const input=button.closest('[data-claim-result],.welcome-code-result')?.querySelector('[data-claim-code]');if(!input)return;
+  try{await navigator.clipboard.writeText(input.value);button.textContent='Copied!';}
+  catch{input.focus();input.select();button.textContent='Select and copy this code';}
+}));
+document.querySelectorAll('[data-promo-admin]').forEach(form=>{
+  const sync=()=>{
+    form.querySelectorAll('[data-promo-targets]').forEach(p=>p.hidden=p.dataset.promoTargets!==form.elements.scope.value);
+    const type=form.elements.discount_type.value,value=form.elements.discount_value;
+    value.step=type==='percentage'?'1':'0.01';value.min=type==='free_shipping'?'0':type==='percentage'?'1':'0.01';
+    if(type==='percentage')value.max='100';else value.removeAttribute('max');
+    if(type==='free_shipping')value.value='0';
+    const search=form.querySelector('[data-promo-product-search]').value.trim().toLocaleLowerCase();
+    form.querySelectorAll('[data-promo-product]').forEach(p=>p.hidden=!p.dataset.name.includes(search));
+  };
+  form.addEventListener('change',sync);form.addEventListener('input',sync);
+  form.querySelector('[data-generate-promo]').addEventListener('click',()=>{
+    const bytes=crypto.getRandomValues(new Uint8Array(12));form.querySelector('[data-generate-target]').value='MC-'+Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();
+  });sync();
+});
 // Device-local popup preferences never decide promotion eligibility.
 const welcomeDialog=document.querySelector('[data-welcome-popup]');
 if(welcomeDialog){
@@ -7,7 +42,7 @@ if(welcomeDialog){
   const rememberWelcome=()=>{try{localStorage.setItem(welcomeStorageKey,'1');}catch{}document.cookie='mscharm_welcome_seen=1; Max-Age=31536000; Path=/; SameSite=Lax'+(location.protocol==='https:'?'; Secure':'');};
   const showWelcome=()=>{
     if(welcomeDialog.open||document.querySelector('dialog[open]'))return;
-    if(typeof welcomeDialog.showModal!=='function'){location.assign('/register?welcome=1');return;}
+    if(typeof welcomeDialog.showModal!=='function'){location.assign('/welcome');return;}
     rememberWelcome();welcomeDialog.showModal();
   };
   const dismissWelcome=()=>{rememberWelcome();welcomeDialog.close();};
@@ -213,7 +248,7 @@ if(offerForm){
     if(Number(field('minimum_amount').value)>0)terms+=' · Eligible purchase of '+offerForm.dataset.currency+' '+field('minimum_amount').value+' minimum';
     if(Number(field('maximum_discount').value)>0)terms+=' · Savings capped at '+offerForm.dataset.currency+' '+field('maximum_discount').value+' per order';
     if(field('ends_at').value)terms+=' · Ends '+field('ends_at').value.replace('T',' ');
-    terms+=' · Offers cannot be combined. We apply the better of promotional savings and your welcome discount. Sale prices do not stack.';
+    terms+=' · Offers cannot be combined. Applying a promo or welcome code at checkout replaces automatic offers. Sale prices do not stack.';
     fillOfferDialog({title:field('title').value||'Your promotional headline',description:field('description').value,terms,cta_text:field('cta_text').value,image:field('remove_image').checked?'':offerForm.dataset.previewImage||'',cta_url:'/shop'});
     if(open)openOfferDialog();
   };
@@ -226,11 +261,29 @@ if(offerForm){
 // Delivery selection uses server quotes; browser fees and totals are never authoritative.
 const deliveryCheckout=document.querySelector('[data-delivery-checkout]');
 if(deliveryCheckout){
-  const areaControl=deliveryCheckout.querySelector('[data-delivery-area]');
+  const areaControl=deliveryCheckout.querySelector('[name=governorate],[name=delivery_area]');
   const summary=document.querySelector('[data-delivery-summary]');
   const feedback=deliveryCheckout.querySelector('[data-delivery-feedback]');
   const place=deliveryCheckout.querySelector('[data-place-order]');
   let deliveryRevision=0,deliveryBusy=false,deliveryAbort=null;
+  deliveryCheckout.addEventListener('submit',async event=>{
+    if(event.submitter?.name!=='promo_action')return;
+    event.preventDefault();
+    const revision=++deliveryRevision;deliveryAbort?.abort();deliveryAbort=new AbortController();deliveryBusy=true;place.disabled=true;
+    const buttons=Array.from(deliveryCheckout.querySelectorAll('[data-promo-action]'));
+    buttons.forEach(b=>b.disabled=true);summary.setAttribute('aria-busy','true');
+    const note=deliveryCheckout.querySelector('[data-promo-feedback]');note.textContent='Updating promo code…';
+    const data=new URLSearchParams(new FormData(deliveryCheckout));data.set('promo_action',event.submitter.value);data.set('delivery_revision',String(revision));
+    try{
+      const response=await fetch('/api/promo',{method:'POST',body:data,signal:deliveryAbort.signal,headers:{Accept:'application/json'},cache:'no-store'});
+      const result=await response.json();if(revision!==deliveryRevision)return;
+      if(!response.ok||!result.ok)throw new Error(result.message||'Unable to update this code.');
+      summary.innerHTML=result.summary;note.textContent=result.message;
+      if(data.get('promo_action')==='remove')deliveryCheckout.querySelector('[data-promo-code]').value='';
+      place.disabled=!result.ready||deliveryCheckout.dataset.storeOpen!=='1';
+    }catch(error){if(error.name!=='AbortError'&&revision===deliveryRevision){note.textContent=error.message||'Unable to reach the store. Please retry.';place.disabled=true;}}
+    finally{buttons.forEach(b=>b.disabled=false);if(revision===deliveryRevision){deliveryBusy=false;summary.removeAttribute('aria-busy');}}
+  });
   async function refreshDelivery(){
     if(!areaControl)return;
     const revision=++deliveryRevision;
@@ -247,22 +300,20 @@ if(deliveryCheckout){
       place.disabled=!result.ready||deliveryCheckout.dataset.storeOpen!=='1';
       const city=deliveryCheckout.querySelector('[data-delivery-city]');city.required=!!result.city_required;city.readOnly=!!result.city_locked;
       if(result.city_locked)city.value=result.city||'';
+
     }catch(error){if(error.name!=='AbortError'&&revision===deliveryRevision){feedback.textContent=error.message||'Delivery could not be updated. Use Review delivery fee or refresh checkout.';place.disabled=true;}}
     finally{if(revision===deliveryRevision){deliveryBusy=false;summary.removeAttribute('aria-busy');}}
   }
   if(areaControl){
-    deliveryCheckout.addEventListener('change',event=>{if(event.target.matches('input:not([name="terms"]),textarea,select[name="delivery_area"]'))refreshDelivery();});
+    deliveryCheckout.addEventListener('change',event=>{if(event.target.matches('input:not([name="terms"]):not([name="promo_code"]),textarea,select[name="governorate"],select[name="delivery_area"]'))refreshDelivery();});
     deliveryCheckout.addEventListener('submit',event=>{
+      if(event.submitter?.name==='promo_action')return;
       if(event.submitter?.name==='review_delivery'){event.preventDefault();refreshDelivery();}
       else if(deliveryBusy||place.disabled){event.preventDefault();feedback.textContent='Please wait for a valid delivery quote and review the total.';}
     });
-    const search=deliveryCheckout.querySelector('[data-delivery-search]');
-    const governorate=deliveryCheckout.querySelector('[data-delivery-governorate]');
-    const filterAreas=()=>{
-      const term=search.value.trim().toLocaleLowerCase(),gov=governorate.value;let visible=0;
-      for(const option of areaControl.options){if(!option.value||option.value==='other')continue;const matches=option.textContent.toLocaleLowerCase().includes(term)&&(!gov||option.dataset.governorate===gov);option.hidden=!matches&&!option.selected;if(matches)visible++;}
-      deliveryCheckout.querySelector('[data-delivery-search-note]').textContent=visible?'Matching supported areas: '+visible+'. Your current selection is preserved.':'No matching supported area. Clear the search or contact the store.';
-    };
-    search.addEventListener('input',filterAreas);governorate.addEventListener('change',filterAreas);
+    // Compatibility only while an existing installation awaits its authorized upgrade.
+    const oldSearch=deliveryCheckout.querySelector('[data-delivery-search]'),oldFilter=deliveryCheckout.querySelector('select[data-delivery-governorate]:not([name])');
+    if(oldSearch&&oldFilter){const filter=()=>{let count=0;for(const option of areaControl.options){if(!option.value||option.value==='other')continue;const match=option.textContent.toLocaleLowerCase().includes(oldSearch.value.trim().toLocaleLowerCase())&&(!oldFilter.value||option.dataset.governorate===oldFilter.value);option.hidden=!match&&!option.selected;if(match)count++;}deliveryCheckout.querySelector('[data-delivery-search-note]').textContent='Matching supported areas: '+count+'. Your current selection is preserved.';};oldSearch.addEventListener('input',filter);oldFilter.addEventListener('change',filter);}
+
   }
 }

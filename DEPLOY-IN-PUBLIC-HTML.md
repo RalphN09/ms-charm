@@ -55,3 +55,11 @@ Before using real customer data, check on your HTTPS domain that these URLs retu
 - `/bin/install.php`
 
 Check the homepage, sign-in, admin saves, and an image upload as well. Keep `storage/` and `uploads/` writable by PHP without making the whole site world writable. Configure the store and replace sample content using the admin dashboard. For architecture and operation details, read README.md locally.
+
+## Latest delivery upgrade: governorates
+
+After uploading this release, sign in and open **Delivery & Shipping Settings** before accepting new orders. The page safely initializes the eight-governorate pricing system. CLI alternative, from this public_html directory: `php bin/delivery-migrate.php`.
+
+Review all eight fees and coverage. Conflicting or missing old rates remain unavailable until you explicitly set and confirm them. Unrecognized old governorate labels also require review. A previously active global flat rate is preserved across the eight governorates; uniform city rates can carry over. The old Other area fallback is not assigned automatically. Original orders and city-based records are retained. Do not import a fresh-install schema into an existing live database.
+
+Customers then select only their governorate and type their city, street and building details. No new .env settings or external mapping service are needed. The README's latest governorate report lists the exact migration rules and tests.

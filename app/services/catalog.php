@@ -32,7 +32,7 @@ function base_product_price(array $product): int { return (int)($product['sale_p
 function product_price(array $product): int { return offers_price($product,$GLOBALS['catalog_offers']??=offers_active()); }
 function cart_totals(bool $lock=false): array {
     $items=[];$subtotal=0;
-    if($lock){delivery_lock();offers_lock();}
+    if($lock){promo_lock();delivery_lock();offers_lock();}
     $activeOffers=offers_active();
     $bag=$_SESSION['cart']??[];ksort($bag);
     foreach($bag as $id=>$quantity) {
@@ -42,13 +42,18 @@ function cart_totals(bool $lock=false): array {
         $items[]=['product'=>$p,'quantity'=>(int)$quantity,'line_total'=>$line,'available'=>(int)$p['stock']>=(int)$quantity];
     }
     $s=delivery_store($lock);$deliveryDetails=delivery_price($subtotal,$lock,null,false,$s);$delivery=$deliveryDetails['fee'];
-    $promotion=welcome_status(null,$lock);$welcome=welcome_cart_discount($items,$promotion);$priced=offers_cart($items,$activeOffers);
+    $promotion=promo_ready()?null:welcome_status(null,$lock);$welcome=welcome_cart_discount($items,$promotion);$priced=offers_cart($items,$activeOffers);
     $welcomeDiscount=$welcome['discount'];$applied=[];
     if($priced['discount']>=$welcomeDiscount && $priced['discount']>0){$welcomeDiscount=0;$applied=$priced['applied'];$items=$priced['items'];}
     $discount=$applied?$priced['discount']:$welcomeDiscount;
+    $code=promo_quote($items,$subtotal,$deliveryDetails,$s);$shippingSaving=0;
+    if($code['code']){
+        $items=array_map(function($line){unset($line['offer_saving'],$line['offer_title']);return $line;},$items);
+        $applied=[];$welcomeDiscount=0;$discount=$code['discount'];$shippingSaving=$code['shipping_discount'];
+    }
     foreach($items as &$line){$line['final_line_total']=$line['line_total']-($line['offer_saving']??0);}unset($line);
     $tax=(int)round(($subtotal-$discount)*(float)$s['tax_rate']/100);
-    return ['subtotal'=>$subtotal,'discounted_subtotal'=>$subtotal-$discount,...$welcome,'items'=>$items,'discount'=>$discount,'welcome_discount'=>$welcomeDiscount,'applied_offers'=>$applied,'delivery'=>$delivery,'delivery_details'=>$deliveryDetails,'tax'=>$tax,'total'=>max(0,$subtotal-$discount+$delivery+$tax),'count'=>array_sum(array_column($items,'quantity'))];
+    return ['subtotal'=>$subtotal,'discounted_subtotal'=>$subtotal-$discount,...$welcome,'items'=>$items,'discount'=>$discount,'welcome_discount'=>$welcomeDiscount,'applied_offers'=>$applied,'promo'=>$code['code'],'promo_error'=>$code['error'],'promo_discount'=>$code['discount'],'promo_shipping_discount'=>$shippingSaving,'promo_lines'=>$code['lines'],'delivery'=>$delivery-$shippingSaving,'delivery_before_promo'=>$delivery,'delivery_details'=>$deliveryDetails,'tax'=>$tax,'total'=>max(0,$subtotal-$discount+$delivery-$shippingSaving+$tax),'count'=>array_sum(array_column($items,'quantity'))];
 }
 function update_cart(array $data): array {
     $id=text_input($data,'product_id',32,true);$qty=int_input($data,'quantity',0,99); $p=row('SELECT p.*,c.active AS category_active FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.id=?',[$id]);
