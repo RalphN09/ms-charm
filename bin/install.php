@@ -15,3 +15,5 @@ require_once ROOT.'/database/promo-migration.php';promo_migrate_up();
 require_once ROOT.'/database/governorate-migration.php';governorate_migrate_up();
 
 require_once ROOT.'/database/variants-migration.php';variants_migrate_up();
+
+require_once ROOT.'/database/email-verification-migration.php';email_verification_migrate_up();

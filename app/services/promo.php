@@ -26,12 +26,13 @@ function promo_prior_purchase(string $key,string $email): bool {
 function promo_claim(array $data): array {
     if(!promo_ready())throw new DomainException('Welcome codes are being set up. Please try again later.');
     rate_limit('welcome_claim',8,3600);$email=promo_email(text_input($data,'email',254,true));$hash=promo_email_key($email);
-    db()->beginTransaction();try{
+    if(!email_verification_ready()||empty($_SESSION['welcome_verified'][$hash])||!welcome_email_verified($hash))throw new DomainException('Verify your email through the link in your inbox before receiving a welcome code.');
+    $ownsTransaction=!db()->inTransaction();if($ownsTransaction)db()->beginTransaction();try{
         promo_lock();$claim=row('SELECT * FROM welcome_email_claims WHERE email_key=?'.promo_for_update(),[$hash]);
         if($claim){
             $p=row('SELECT * FROM promo_codes WHERE id=?'.promo_for_update(),[$claim['promo_id']]);$counts=promo_counts($p['id'],$hash);
             if($counts['redeemed']+$counts['legacy']>0)throw new DomainException('The welcome offer is limited to one successful use per email address.');
-            $u=current_user();$known=($_SESSION['welcome_claims'][$hash]??'')===$p['id']||($u&&hash_equals(promo_email_key($u['email']),$hash));
+            $u=current_user();$known=!empty($_SESSION['welcome_verified'][$hash])||($_SESSION['welcome_claims'][$hash]??'')===$p['id']||($u&&hash_equals(promo_email_key($u['email']),$hash));
             if(!$known)throw new DomainException('A welcome offer has already been claimed for this email. Use your saved code before it expires; one offer is issued per email.');
             if(promo_status($p)!=='Active')throw new DomainException('This email’s welcome offer has expired or is unavailable. Its expiry cannot be reset.');
         }else{
@@ -41,8 +42,8 @@ function promo_claim(array $data): array {
             if($legacy&&($legacy['status']!=='active'||$legacy['expires_at']<=promo_now()))throw new DomainException('This email’s existing welcome offer has ended. It cannot be reissued.');
             $start=$legacy['activated_at']??promo_now();$end=$legacy['expires_at']??gmdate('Y-m-d H:i:s',strtotime($start.' UTC')+(int)$config['duration_hours']*3600);$p=promo_welcome_record($hash,(int)($legacy['percentage']??$config['percentage']),$start,$end);$p['legacy_welcome_id']=$legacy['id']??null;insert_record('promo_codes',$p);insert_record('welcome_email_claims',['id'=>uuid(),'email_key'=>$hash,'promo_id'=>$p['id'],'created_at'=>$start]);
         }
-        db()->commit();$_SESSION['welcome_claims'][$hash]=$p['id'];$_SESSION['checkout_address']??=[];$_SESSION['checkout_address']['email']=$email;return ['code'=>$p['code'],'percentage'=>(int)$p['discount_value'],'expires'=>welcome_expiry_label($p['ends_at']),'message'=>!empty($counts['reserved'])?'Your code is reserved by a pending order. An unpaid cancellation releases it before expiry.':'Your welcome code is ready. Copy it, then apply it at checkout using this same email address.'];
-    }catch(Throwable $e){if(db()->inTransaction())db()->rollBack();throw $e;}
+        if($ownsTransaction)db()->commit();$_SESSION['welcome_claims'][$hash]=$p['id'];$_SESSION['checkout_address']??=[];$_SESSION['checkout_address']['email']=$email;return ['code'=>$p['code'],'percentage'=>(int)$p['discount_value'],'expires'=>welcome_expiry_label($p['ends_at']),'message'=>!empty($counts['reserved'])?'Your code is reserved by a pending order. An unpaid cancellation releases it before expiry.':'Your welcome code is ready. Copy it, then apply it at checkout using this same email address.'];
+    }catch(Throwable $e){if($ownsTransaction&&db()->inTransaction())db()->rollBack();throw $e;}
 }
 function promo_selected(): ?array {return promo_ready()&&!empty($_SESSION['promo_code'])?row('SELECT * FROM promo_codes WHERE code=?'.promo_for_update(),[$_SESSION['promo_code']]):null;}
 function promo_quote(array $items,int $subtotal,array $delivery,array $store): array {
@@ -56,6 +57,7 @@ function promo_quote(array $items,int $subtotal,array $delivery,array $store): a
         if($p['total_limit']&&$counts['held']>=$p['total_limit'] || $p['email_limit']&&$counts['email']>=$p['email_limit'])throw new DomainException('This code has reached its usage limit or is reserved by a pending order.');
         if($p['kind']==='welcome'){
             if($emailKey===null||!hash_equals($p['email_key'],$emailKey))throw new DomainException('Use the same checkout email address that claimed this welcome code.');
+            if(!welcome_email_verified($emailKey))throw new DomainException('Verify your email at the welcome page before applying this welcome code.');
             if(promo_prior_purchase($emailKey,$email))throw new DomainException('The welcome code is limited to a first successful purchase, once per email address.');
         }
         $productIds=array_column(rows('SELECT product_id FROM promo_products WHERE promo_id=?'.promo_for_update(),[$p['id']]),'product_id');$categoryIds=[];

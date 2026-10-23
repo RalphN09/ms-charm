@@ -69,3 +69,15 @@ Customers then select only their governorate and type their city, street and bui
 After merging this release into public_html, open **Admin → Products** while signed in as an administrator. The page applies the safe additive migration. CLI alternative from this directory: `php bin/variants-migrate.php`. Keep the live .env, storage and uploads; no new environment keys or database reset are needed. Existing products retain their current no-variant behavior.
 
 Edit a product and find **Product Variants**. Choose sizes, colors or both, add custom options and color images, then add the actual combinations with stock and optional SKU/price. Blank overrides use the product price/sale price. Save before testing on the storefront. Used configurations are archived when removed; their order snapshots remain intact. Read the README's latest Product variants release report for pricing rules, inventory behavior, changed files and validation.
+
+## Welcome and campaign popups
+
+This release fixes first-visit popup ordering without a schema or .env change. Enable email claims in Admin → Welcome offers. First-time browsers see that email form automatically, and successful submission displays their private welcome code inside the popup. Campaign ads follow after dismissal, one at a time. Activate under Offers & Discounts also enables the campaign popup; its configured frequency still controls repeat visits. Use a fresh private browser session to test the welcome popup if your normal browser has already seen it. Clearing browser display preferences does not reset an email's claim or redemption eligibility.
+
+## Welcome email verification — sender mailbox required
+
+Welcome codes now require inbox verification. The email popup first sends a single-use, 15-minute verification link. A promo code appears only after the recipient opens that link and clicks Verify my email. Missing or failed email delivery does not issue a code.
+
+Create a sender mailbox (for example hello@mscharms.com), then add MAIL_TRANSPORT=smtp, MAIL_HOST, MAIL_PORT, MAIL_ENCRYPTION, MAIL_USER, MAIL_PASSWORD, MAIL_FROM_ADDRESS and MAIL_FROM_NAME to your existing private .env. Keep APP_URL=https://mscharms.com. The README's latest Inbox verification report contains the full Hostinger example and official setup links. The SMTP password must be that mailbox's password; keep it private.
+
+After uploading, open Admin → Welcome offers to initialize the additive migration and inspect delivery configuration status. CLI alternative: php bin/email-verification-migrate.php. Do not import a fresh schema over the live database. Enable claims and test with your own real inbox before launch. No real sender mailbox was configured or external email delivered during development. Existing products/orders and previous updates are preserved.

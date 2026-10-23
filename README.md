@@ -555,3 +555,82 @@ The variant HTTP suite was repeated successfully after making its image fixtures
 Browser verification covered Black's two uploaded images and thumbnail switching, White's separate image and USD 28 override, the missing-image notice/fallback, required/disabled sizes, separate Black/S and White/M bag lines, adding/saving a custom L size and Beige/L combination, reordering sizes, editor previews, and zero console errors. Product layout was checked at widths 320, 390, 768 and 1280; the editor and bag were also checked at 390 with no horizontal overflow. Screenshot `outputs/variants-desktop.png` uses clearly labelled disposable test images; they are not included as live catalog content.
 
 Reproduction: `php tests/variants.php` uses a disposable SQLite database. For MySQL, set `TEST_DB_DRIVER=mysql` and DB connection variables to an empty disposable database. HTTP tests require the local test server and disposable `APP_ENV=test` database (`php tests/variants-http.php`); fixture PNGs are bundled in the source-only tests directory. The concurrency harness uses separate CLI workers and a MySQL test database; never point test suites at a live store.
+
+## Welcome popup and campaign ad sequence — 19 October 2026
+
+First-time storefront visitors now see the email welcome popup automatically before campaign advertisements. The welcome form requires a valid email to claim a private code and displays the code and Copy Code button directly inside the popup. It remains dismissible. Visitors do not need an account. Existing email eligibility, expiry, non-stacking and checkout rules are unchanged. Enable future claims in Admin → Welcome offers. Browser-local preferences remember that the welcome popup has been seen; clearing site data or using a fresh private browser profile lets the owner test the first-visit experience. This controls display only and never resets an email's claim eligibility. Returning visitors can reopen the form through the storefront welcome link.
+
+Campaign ads no longer suppress the email popup. After dismissal, active popup campaigns appear one at a time in descending priority, respecting each campaign's session/day/once frequency. Closing a campaign allows the next unseen eligible campaign to appear. Campaigns are fetched again between popups so disabled, expired or exhausted campaigns are not deliberately queued from stale data. A failed offer request does not prevent the welcome email form appearing. Checkout and sign-in remain excluded from automatic ads.
+
+Admin → Offers & Discounts → Activate now also turns that campaign's promotional popup on. Creating an Enabled campaign has Enable promotional popup checked by default; the editor still allows an explicit opt-out. Future scheduled campaigns wait until their start time. Publication/update timestamps version campaign display preferences, allowing a republished offer to advertise again to returning browsers; normal frequency rules apply within the published version. Existing account-only targeting, availability and redemption limits remain enforced. Issued private welcome codes are never exposed as public campaign ads.
+
+Updated `public/assets/store.js`, `app/services/offers.php`, `app/views/offers-admin.php`, `app/views/welcome-admin.php`, `tests/offers.php`, `tests/offers-popup.js` and `tests/promo-http.php`; added `tests/popup-sequence.js`. The promo HTTP fixture now generates its manual test code in uppercase to match server normalization consistently on case-sensitive SQLite and case-insensitive MySQL. No production schema or environment change is required.
+
+Validation for this update: 61 offer service assertions on SQLite and 61 on MySQL; 74 integration HTTP, 38 promo HTTP and 20 offer HTTP assertions on a fresh disposable SQLite test database; 11 popup frequency/version checks and 7 popup sequencing checks. **272 automated assertions passed**, plus touched PHP and JavaScript syntax checks. Browser testing confirmed the automatic welcome form, a real email claim with the code rendered inside the popup, two sequential campaign ads in priority order, no overlapping dialogs, and a fitting 390-pixel mobile layout. Test fixtures and runtime data remain excluded from the Hostinger archive. Main public_html files and both distribution ZIPs are synchronized; no live deployment was performed.
+
+## Inbox verification before welcome codes — 19 October 2026
+
+This release supersedes the earlier immediate email-only claim behavior. Entering a plausible email address no longer returns a welcome code. The customer must receive a verification email, open its link and click **Verify my email**. Only then does the website issue and display the private code with a Copy Code button. No account is required. This proves access to the destination inbox; a valid-looking address alone is insufficient.
+
+### Required sender setup
+
+The owner currently has no sender mailbox. **Live delivery has not been configured or tested.** The code is ready for authenticated SMTP and deliberately withholds codes while delivery is missing or fails. Do not claim this is already sending real customer emails.
+
+Create a mailbox such as `hello@mscharms.com` with your email provider. For Hostinger Email, use hPanel's Emails area to create/manage the domain mailbox and complete the provider's DNS setup. Hostinger documents SMTP `smtp.hostinger.com`, SSL on port 465 (or STARTTLS on port 587), with the full mailbox address and its mailbox password. Follow your account's actual settings if your provider differs:
+
+- [Hostinger mailbox setup](https://support.hostinger.com/en/articles/1583217-how-to-create-and-manage-mailboxes-for-hostinger-email)
+- [Hostinger SMTP configuration](https://support.hostinger.com/en/articles/1575756-how-to-get-email-account-configuration-details-for-hostinger-email)
+
+Add these values to the **existing private .env** on Hostinger, using the mailbox you actually create. Keep the existing database settings and PUBLIC_PATH configuration. Do not send mailbox passwords in chat or place them in campaign content.
+
+```dotenv
+APP_ENV=production
+APP_URL=https://mscharms.com
+MAIL_TRANSPORT=smtp
+MAIL_HOST=smtp.hostinger.com
+MAIL_PORT=465
+MAIL_ENCRYPTION=ssl
+MAIL_USER=hello@mscharms.com
+MAIL_PASSWORD="YOUR_MAILBOX_PASSWORD"
+MAIL_FROM_ADDRESS=hello@mscharms.com
+MAIL_FROM_NAME="M's Charm"
+```
+
+After merging the updated main folder or Hostinger ZIP into public_html, open **Admin → Welcome offers**. The authorized page safely creates the new verification table and displays whether the mail configuration is present. CLI alternative from public_html: `php bin/email-verification-migrate.php`. Enable email welcome claims and save. Test the popup with an inbox you own: request the verification email, check inbox/spam, follow its link, confirm, then apply the code at checkout with the same email. The status Configured means settings are present, not that mailbox delivery has been proven. Finish a real inbox test before launch. A fresh private browser session helps test the initial automatic popup.
+
+### Behavior and protections
+
+Verification links use 256 random bits; only a SHA-256 digest is saved in `welcome_email_verifications`. Links expire after 15 minutes, newer sends invalidate older links, and a token is consumed atomically with code issuance. Replaying a link cannot mint another code. Opening the GET landing page alone does not consume it, so ordinary link-preview scanners do not claim the offer. Confirmation uses a CSRF-protected POST. Verification pages are noindex, use no-referrer, and suppress promotional popups.
+
+Email requests return a generic inbox message with no token, code, private email key or eligibility disclosure. There is a 60-second resend cooldown, up to three sends per email per hour, and IP request/confirmation limits. The temporary recipient and token are erased after successful confirmation; failed SMTP delivery invalidates the token. Mail is sent outside the checkout mutex transaction. SMTP debug output is disabled, credentials are not logged, and TLS certificate checks are kept enabled. Verification links use the configured HTTPS APP_URL, never a visitor-supplied Host header.
+
+The issuing service requires both stored verification and proof in the confirming browser's private session. Creating an ordinary account with someone else's email cannot retrieve that email's private code. Previously issued welcome codes require verified email before a new checkout can apply them; saved order amounts and existing redemption history remain unchanged. Verification does not reset the one-code-per-email rule, successful-use limits or any previously issued code's expiry. For a genuinely new claim, the welcome discount validity starts at verification, not at the initial email request. Manual campaign codes and offer popups retain their separate existing behavior.
+
+Email transport uses the unmodified minimal SMTP classes from **PHPMailer 7.1.1**, downloaded from its official release, with LGPL-2.1 license and provenance in `app/lib/PHPMailer`. Composer is not required on Hostinger. The explicit test transport is permitted only under APP_ENV=test and MAIL_TRANSPORT=test; it writes to private runtime storage and cannot operate in production. Never configure that transport on a live store.
+
+### Files and migration
+
+Added `app/services/mailer.php`, `app/services/email-verification.php`, `database/email-verification-migration.php`, `bin/email-verification-migrate.php`, `app/views/welcome-verify.php`, the PHPMailer files/license/provenance, `tests/email-verification.php`, `tests/email-verification-http.php`, and the source-only `tests/verified-email-fixture.php` helper.
+
+Updated bootstrap, fresh schemas/MySQL export, installer, promo issuance/quotation, public routes, welcome popup/page/form/admin/account views, layout metadata, offer-popup exclusions, store.js, environment examples and flattened package configuration. Existing promo/variant/governorate service and HTTP tests now use verified customer fixtures or the actual request-and-confirm flow. Promo concurrency now races the same verification token. The main folder and both ZIPs include this update and all previous changes, while excluding live .env, databases, uploads, sessions, test emails and verification tokens.
+
+The additive migration creates a single table; no existing products, orders or claim history are reset. Repeated migrations/installations are safe. Down migration is supported only for an empty verification table and refuses to erase verification history.
+
+### Validation
+
+675 automated assertions/scenarios passed for this update:
+
+| Suite | Passed |
+| --- | ---: |
+| Verification service, SQLite / MySQL | 35 / 35 |
+| Promo service, SQLite / MySQL | 78 / 78 |
+| Variant service, SQLite / MySQL | 65 / 65 |
+| Governorate service, SQLite | 54 |
+| Integration / promo / verification / offers / governorates / variants HTTP | 74 / 38 / 22 / 20 / 54 / 36 |
+| Popup preferences / sequencing | 11 / 7 |
+| MySQL simultaneous token confirmation / same-key order / competing-key order | 1 / 1 / 1 |
+
+All 107 PHP files passed syntax checks and store.js passed its JavaScript syntax check. Fresh and repeated installations passed on SQLite and MySQL. Browser verification used an explicit local test mailbox capture, confirmed no code in the pending popup, opened a real generated link, submitted confirmation and received the server-issued code. Mobile width 390 fitted without horizontal overflow; tested browser flow had no console errors. Real SMTP inbox delivery remains untested because the owner has not yet created a mailbox. No external email was sent in these tests and no production deployment was performed.
+
+## Admin order email notifications
+After a new order is committed, the store sends its reference, customer/address details, items and variants, totals, and a sign-in-protected admin link. Set the recipient under Admin > Store settings > New order notification email; blank uses MAIL_FROM_ADDRESS. Uses the same authenticated SMTP configuration as welcome verification. No migration is needed. Replayed checkout submissions do not resend. Sending failures are logged without blocking the saved order; automatic retries are not included. Configure SMTP and place a test order to confirm real inbox delivery.

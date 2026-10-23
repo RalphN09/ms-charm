@@ -3,10 +3,11 @@ document.querySelectorAll('[data-welcome-claim]').forEach(form=>{
   form.addEventListener('submit',async event=>{
     event.preventDefault();if(!form.reportValidity()||form.dataset.busy==='1')return;
     const button=form.querySelector('[type="submit"]'),note=form.querySelector('[data-claim-status]');
-    form.dataset.busy='1';button.disabled=true;form.setAttribute('aria-busy','true');note.textContent='Preparing your welcome code…';
+    form.dataset.busy='1';button.disabled=true;form.setAttribute('aria-busy','true');note.textContent='Sending your verification email…';
     try{
       const response=await fetch('/api/welcome/claim',{method:'POST',body:new URLSearchParams(new FormData(form)),headers:{Accept:'application/json'},cache:'no-store'});
       const result=await response.json();if(!response.ok)throw new Error(result.message||'Unable to claim your code. Please try again.');
+      if(result.verification_required){form.querySelector('[data-claim-result]').hidden=true;note.textContent=result.message;button.textContent='Resend verification email';return;}
       form.querySelector('[data-claim-code]').value=result.code;
       form.querySelector('[data-claim-expiry]').textContent='Your '+result.percentage+'% code expires '+result.expires+'.';
       form.querySelector('[data-claim-result]').hidden=false;form.classList.add('is-claimed');note.textContent=result.message;
@@ -43,7 +44,7 @@ if(welcomeDialog){
   const showWelcome=()=>{
     if(welcomeDialog.open||document.querySelector('dialog[open]'))return;
     if(typeof welcomeDialog.showModal!=='function'){location.assign('/welcome');return;}
-    rememberWelcome();welcomeDialog.showModal();
+    welcomeDialog.showModal();rememberWelcome();
   };
   const dismissWelcome=()=>{rememberWelcome();welcomeDialog.close();};
   document.querySelectorAll('[data-open-welcome]').forEach(control=>control.addEventListener('click',event=>{event.preventDefault();showWelcome();}));
@@ -58,8 +59,8 @@ if(welcomeDialog){
   });
   welcomeDialog.addEventListener('click',event=>{if(event.target===welcomeDialog){const rect=welcomeDialog.getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)dismissWelcome();}});
   const autoWelcome=()=>{if(!welcomeSeen() && typeof welcomeDialog.showModal==='function')showWelcome();};
-  if(document.querySelector('[data-offer-popup]'))document.addEventListener('offers:empty',autoWelcome,{once:true});
-  else window.setTimeout(autoWelcome,700);
+  // First-time visitors see the email claim before campaign ads, even if the offer API is slow.
+  window.setTimeout(autoWelcome,700);
 }
 // On returning to a page, refresh status using server time rather than the device clock.
 let refreshingWelcome=false;
@@ -217,11 +218,13 @@ if(offerDialog){
 }
 // Frequency preferences affect display only. Broken/blocked storage suppresses automatic popups.
 function offerPopupSeen(o,at=Date.now()){
-  try{const storage=o.frequency==='session'?sessionStorage:localStorage;const value=Number(storage.getItem('mscharm.offer.'+o.id)||0);return value>0&&(o.frequency!=='day'||at-value<86400000);}
+  try{const storage=o.frequency==='session'?sessionStorage:localStorage;const value=Number(storage.getItem('mscharm.offer.'+o.id+(o.popup_version?'.'+o.popup_version:''))||0);return value>0&&(o.frequency!=='day'||at-value<86400000);}
   catch{return true;}
 }
-function rememberOfferPopup(o){try{(o.frequency==='session'?sessionStorage:localStorage).setItem('mscharm.offer.'+o.id,String(Date.now()));}catch{}}
+function rememberOfferPopup(o){try{(o.frequency==='session'?sessionStorage:localStorage).setItem('mscharm.offer.'+o.id+(o.popup_version?'.'+o.popup_version:''),String(Date.now()));}catch{}}
 async function showCurrentOffer(){
+  // Wait for the welcome form or any manually opened dialog to close.
+  if(document.querySelector('dialog[open]'))return;
   let selected=null;
   try{
     const response=await fetch('/api/offers',{cache:'no-store',headers:{Accept:'application/json'}});
@@ -230,7 +233,11 @@ async function showCurrentOffer(){
   }catch{} // Network failures leave the shop usable; the offers page remains available.
   document.dispatchEvent(new Event('offers:empty'));
 }
-if(document.querySelector('[data-offer-popup]'))window.setTimeout(showCurrentOffer,700);
+if(document.querySelector('[data-offer-popup]')){
+  window.setTimeout(showCurrentOffer,900);
+  // Re-read live campaigns after dismissal; frequency rules skip already shown ads.
+  for(const dialog of [welcomeDialog,offerDialog])dialog?.addEventListener('close',()=>window.setTimeout(showCurrentOffer,800));
+}
 const offerForm=document.querySelector('[data-offer-form]');
 if(offerForm){
   const field=name=>offerForm.elements.namedItem(name);

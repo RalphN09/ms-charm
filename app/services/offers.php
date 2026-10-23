@@ -107,7 +107,7 @@ function offers_public(): array {
             elseif(!$available)$available=row('SELECT id FROM pages WHERE slug=? AND active=1',[trim((string)$path,'/')])!==null;
             if(!$available)$destination='/shop';
         }
-        $result[]=['id'=>$o['id'],'title'=>$o['title'],'description'=>$o['description'],'image'=>image_url($o['image']),'cta_text'=>$o['cta_text']?:'Shop now','cta_url'=>$destination,'terms'=>offer_terms($o),'frequency'=>$o['frequency'],'popup_enabled'=>(bool)$o['popup_enabled']];
+        $result[]=['id'=>$o['id'],'popup_version'=>substr(hash('sha256',$o['id'].':'.$o['updated_at']),0,16),'title'=>$o['title'],'description'=>$o['description'],'image'=>image_url($o['image']),'cta_text'=>$o['cta_text']?:'Shop now','cta_url'=>$destination,'terms'=>offer_terms($o),'frequency'=>$o['frequency'],'popup_enabled'=>(bool)$o['popup_enabled']];
     }return $result;
 }
 function offer_date(string $date,bool $optional=false): ?string {
@@ -151,7 +151,7 @@ function offer_admin_action(array $d): void {
             foreach(rows('SELECT * FROM offer_products WHERE offer_id=?',[$old['id']]) as $r){$r['offer_id']=$id;insert_record('offer_products',$r);}foreach(rows('SELECT * FROM offer_categories WHERE offer_id=?',[$old['id']]) as $r){$r['offer_id']=$id;insert_record('offer_categories',$r);}
         }elseif($old && in_array($action,['enable','disable','delete'],true)){
             if($action==='enable'&&in_array($old['scope'],['all','exclude'],true)&&!flag($d,'confirm_storewide'))throw new DomainException('Confirm storewide activation.');
-            update_record('offers',$id,['state'=>$action==='enable'?'enabled':'disabled','deleted'=>$action==='delete'?1:0,'updated_at'=>now()]);
+            update_record('offers',$id,['state'=>$action==='enable'?'enabled':'disabled','deleted'=>$action==='delete'?1:0,...($action==='enable'?['popup_enabled'=>1]:[]),'updated_at'=>now()]);
         }else throw new DomainException('Unknown offer action.');
         audit($action,'offers',$id);db()->commit();unset($GLOBALS['catalog_offers']);
     }catch(Throwable $e){if(db()->inTransaction())db()->rollBack();throw $e;}

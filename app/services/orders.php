@@ -61,6 +61,7 @@ function place_order(array $data): array {
         }
         foreach($cart['items'] as $line) { $p=$line['product'];insert_record('order_items',['id'=>uuid(),'order_id'=>$id,'product_id'=>$p['id'],'product_name'=>$p['name'],'unit_price'=>base_product_price($p),'quantity'=>$line['quantity'],'image'=>product_images($p)[0]??'',...(variants_ready()?['variant_id'=>$line['variant_id'],'variant_snapshot'=>$line['variant_snapshot']?json_encode($line['variant_snapshot'],JSON_UNESCAPED_UNICODE):null,'line_discount'=>$line['line_discount'],'final_line_total'=>$line['final_line_total']]:[])]); }
         db()->commit();$_SESSION['cart']=[];$_SESSION['order_access'][$id]=true;
+        notify_admin_new_order($order);
         return $order;
     } catch(Throwable $e) { if(db()->inTransaction())db()->rollBack();throw $e; }
 }

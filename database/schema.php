@@ -5,6 +5,7 @@ require_once __DIR__.'/delivery-migration.php';
 require_once __DIR__.'/promo-migration.php';
 require_once __DIR__.'/governorate-migration.php';
 require_once __DIR__.'/variants-migration.php';
+require_once __DIR__.'/email-verification-migration.php';
 // Same schema on SQLite (local) and MySQL/MariaDB (Hostinger). Money is integer cents.
 return [
 "CREATE TABLE IF NOT EXISTS users (id VARCHAR(32) PRIMARY KEY, name VARCHAR(120) NOT NULL, email VARCHAR(254) NOT NULL UNIQUE, phone VARCHAR(40) NOT NULL DEFAULT '', delivery_profile TEXT, password_hash VARCHAR(255) NOT NULL, role VARCHAR(20) NOT NULL DEFAULT 'customer', active INTEGER NOT NULL DEFAULT 1, auth_version INTEGER NOT NULL DEFAULT 1, created_at VARCHAR(19) NOT NULL, updated_at VARCHAR(19) NOT NULL)",
@@ -27,5 +28,6 @@ welcome_schema_sql(),
 ...offers_schema(),
 ...promo_schema(),
 ...variants_schema(),
+...email_verification_schema(),
 ];
 

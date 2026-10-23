@@ -23,7 +23,7 @@ try {
     }
     if($method==='POST') {
         verify_csrf();
-        if($path==='/api/welcome/claim')json_response(promo_claim($_POST));
+        if($path==='/api/welcome/claim')json_response(welcome_verification_request($_POST));
         if($path==='/api/promo'){
             $cart=promo_apply($_POST);ob_start();require ROOT.'/app/views/totals.php';$summary=ob_get_clean();json_response(['ok'=>true,'summary'=>$summary,'ready'=>$cart['delivery_details']['status']==='ready'&&$cart['promo_error']===''&&$cart['can_checkout'],'message'=>empty($_SESSION['promo_code'])?'Promo code removed.':'Promo code applied. Review your updated total.']);
         }
@@ -36,7 +36,8 @@ try {
             json_response(['ok'=>true,'ready'=>$cart['delivery_details']['status']==='ready'&&$cart['promo_error']===''&&$cart['can_checkout'],'summary'=>$summary,'message'=>$cart['promo_error']?:$cart['delivery_details']['message'],'city'=>$cart['delivery_details']['locality'],'city_locked'=>$cart['delivery_details']['mode']==='area'&&$cart['delivery_details']['locality']!=='','city_required'=>$cart['delivery_details']['mode']!=='area'||$cart['delivery_details']['locality']==='','currency'=>settings('store')['currency']]);
         }
         switch($path) {
-            case '/welcome/claim': try{$_SESSION['welcome_claim_result']=promo_claim($_POST);}catch(DomainException $e){flash($e->getMessage(),'error');}redirect('/welcome');
+            case '/welcome/claim': $request=welcome_verification_request($_POST);flash($request['message']);redirect('/welcome');
+            case '/welcome/verify': $_SESSION['welcome_claim_result']=welcome_verification_complete($_POST);redirect('/welcome');
             case '/login': authenticate($_POST);$u=current_user();redirect(in_array($u['role'],['owner','admin','developer'],true)?'/admin':'/account');
             case '/register': register_customer($_POST);redirect('/account');
             case '/logout': $_SESSION=[];session_regenerate_id(true);redirect('/');
@@ -44,9 +45,7 @@ try {
             case '/checkout': if(isset($_POST['promo_action'])){delivery_capture($_POST);promo_apply($_POST);flash('Promo code updated. Review the total.');redirect('/checkout');}if(isset($_POST['review_delivery'])){delivery_update_quote($_POST);flash('Delivery and totals updated. Please review them before placing your order.');redirect('/checkout');}$order=place_order($_POST);redirect('/confirmation/'.$order['id']);
             case '/reviews': submit_review($_POST);flash('Thank you. Your review will appear after approval.');redirect('/reviews');
             case '/contact':
-                if(!settings('contact')['form_enabled'])throw new DomainException('The contact form is currently closed.');
-                rate_limit('contact',5,3600);$email=text_input($_POST,'email',254,true);if(!filter_var($email,FILTER_VALIDATE_EMAIL))throw new DomainException('Enter a valid email address.');
-                insert_record('messages',['id'=>uuid(),'name'=>text_input($_POST,'name',120,true),'email'=>$email,'message'=>text_input($_POST,'message',5000,true),'status'=>'new','created_at'=>now()]);flash('Your message has been sent to the store.');redirect('/contact');
+                redirect('/contact');
         }
         if(str_starts_with($path,'/admin')) {
             require_admin();$section=text_input($_POST,'section',40,true);$action=text_input($_POST,'action',40,true);
@@ -82,6 +81,7 @@ try {
         if($section==='delivery' && !delivery_ready()){require_once ROOT.'/database/delivery-migration.php';delivery_migrate_up();}
         if($section==='delivery' && !governorate_ready()){require_once ROOT.'/database/governorate-migration.php';governorate_migrate_up();}
         if(in_array($section,['offers','welcome'],true)&&!promo_ready()){require_once ROOT.'/database/promo-migration.php';promo_migrate_up();}
+        if(in_array($section,['offers','welcome'],true)&&!email_verification_ready()){require_once ROOT.'/database/email-verification-migration.php';email_verification_migrate_up();}
         if($section==='offers' && !offers_ready()){require_once ROOT.'/database/offers-migration.php';offers_migrate_up();}
         $record=null;if(!empty($_GET['edit']) && in_array($section,['products','categories','reviews','homepage','pages','navigation','promotions','users'],true))$record=row('SELECT * FROM '.cms_table($section).' WHERE id=?',[text_input($_GET,'edit',32)]);
         render('admin',['title'=>'Store management','section'=>$section,'record'=>$record]);exit;
@@ -89,6 +89,7 @@ try {
     switch($path) {
         case '/': render('home',['title'=>settings('seo')['title']]);break;
         case '/shop': render('shop',['title'=>'The collection','list'=>products($_GET)]);break;
+        case '/welcome/verify': header('Referrer-Policy: no-referrer');render('welcome-verify',['title'=>'Verify your email']);break;
         case '/welcome': render('welcome-page',['title'=>'Your welcome code']);break;
         case '/offers': render('offers',['title'=>'Offers & Discounts']);break;
         case '/categories': render('categories',['title'=>'Find your favorite']);break;
